@@ -5,9 +5,12 @@ ValidationInput and ValidationResult are immutable Pydantic models for type safe
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from hallucination_guard.prompts.schema import StructuredPrompt
 
 
 class ValidationInput(BaseModel):
@@ -18,12 +21,17 @@ class ValidationInput(BaseModel):
         output: The model-generated output to validate
         context: Optional reference context (e.g., retrieved documents)
         domain: Optional domain metadata (e.g., 'healthcare', 'finance')
+        structured_prompt: Optional StructuredPrompt from prompt security analysis
     """
     
     prompt: str
     output: str
     context: Optional[str] = None
     domain: Optional[str] = None
+    structured_prompt: Optional["StructuredPrompt"] = Field(
+        default=None,
+        description="Optional result from prompt security analysis (injection detection, intent classification)"
+    )
     
     model_config = {"frozen": True}
 
@@ -38,6 +46,7 @@ class ValidationResult(BaseModel):
         evidence: Human-readable explanation of the decision
         latency_ms: Time taken to run validation in milliseconds
         error: Optional error message if validator failed gracefully
+        metadata: Optional additional data from validator (e.g., structured_prompt, detailed results)
     """
     
     validator_name: str
@@ -46,6 +55,7 @@ class ValidationResult(BaseModel):
     evidence: str
     latency_ms: float = Field(ge=0.0)
     error: Optional[str] = None
+    metadata: Optional[dict] = None
     
     model_config = {"frozen": True}
     
