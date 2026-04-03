@@ -49,6 +49,19 @@ class PolicyConfig(BaseModel):
     description: str = Field(default="", description="Human-readable policy description")
     latency_budget_ms: int = Field(..., gt=0, description="Maximum total pipeline latency in milliseconds")
     risk_threshold: float = Field(..., ge=0.0, le=1.0, description="Maximum acceptable risk score (0.0-1.0)")
+    
+    # Prompt validator configuration (Tier 0.5)
+    enable_prompt_validators: bool = Field(
+        default=True,
+        description="Whether to enable prompt security validators (Tier 0.5)"
+    )
+    prompt_injection_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Maximum acceptable prompt injection risk (0.0-1.0). <30% typical."
+    )
+    
     validators: list[ValidatorConfig] = Field(..., min_length=1, description="List of validator configurations")
     mitigation: MitigationConfig = Field(default_factory=MitigationConfig, description="Mitigation strategies")
     
