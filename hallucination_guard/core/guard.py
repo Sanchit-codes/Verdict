@@ -59,6 +59,7 @@ class Guard:
         self,
         policy: Union[str, Path, PolicyConfig],
         trace_enabled: Optional[bool] = None,
+        enable_prompt_validators: bool = True,
     ) -> None:
         """Initialize Guard with a policy configuration.
 
@@ -74,6 +75,8 @@ class Guard:
                 - PolicyConfig object: Pre-loaded configuration
             trace_enabled: Whether to export traces. If None (default), auto-enables
                           if LANGFUSE_PUBLIC_KEY is set. Explicit True/False overrides.
+            enable_prompt_validators: Whether to enable Tier 0.5 prompt security validators
+                          (prompt_structure and prompt_injection). Default True.
 
         Raises:
             PolicyLoadError: If policy cannot be loaded or validated
@@ -89,6 +92,9 @@ class Guard:
             >>> # By PolicyConfig
             >>> config = load_policy("rag_strict")
             >>> guard3 = Guard(policy=config)
+            >>>
+            >>> # With prompt validators disabled
+            >>> guard4 = Guard(policy="default", enable_prompt_validators=False)
         """
         # Load policy
         try:
@@ -110,6 +116,9 @@ class Guard:
                 reason=str(e),
             ) from e
 
+        # Store prompt validator setting
+        self.enable_prompt_validators = enable_prompt_validators
+
         # Initialize pipeline with loaded policy
         self.pipeline = ValidationPipeline(self.policy)
 
@@ -123,7 +132,8 @@ class Guard:
 
         logger.debug(
             f"Guard initialized with policy '{self.policy.name}' "
-            f"(trace_enabled={self.trace_enabled})"
+            f"(trace_enabled={self.trace_enabled}, "
+            f"enable_prompt_validators={self.enable_prompt_validators})"
         )
 
     def validate(
@@ -135,7 +145,7 @@ class Guard:
     ) -> GuardDecision:
         """Validate model output synchronously.
 
-        Runs the three-tier validation pipeline and returns a structured decision.
+        Runs the four-tier validation pipeline (Tier 0.5 + Tiers 1-3) and returns a structured decision.
         Does NOT auto-raise exceptions—users check decision.decision field and
         raise exceptions manually if desired.
 
@@ -202,6 +212,11 @@ class Guard:
                         "validation_results": [
                             r.model_dump() for r in decision.validator_results
                         ],
+                        "policy_name": decision.policy_name,
+                        "latency_ms": decision.latency_ms,
+                        "confidence": decision.confidence,
+                        "prompt_injection_risk": decision.prompt_injection_risk,
+                        "prompt_security_metadata": decision.prompt_security_metadata,
                     },
                     prompt=prompt,
                     output=output,
