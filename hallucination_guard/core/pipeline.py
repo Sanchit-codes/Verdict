@@ -1,13 +1,14 @@
-"""Three-tier validation cascade orchestrator with early-exit optimization.
+"""Four-tier validation cascade orchestrator with early-exit optimization.
 
 This module implements the ValidationPipeline class that:
-1. Orchestrates validators in tier order (Heuristics → Embedding → HHEM)
+1. Orchestrates validators in tier order (Prompt Security → Heuristics → Embedding → HHEM)
 2. Implements early-exit logic to skip validators when decisions are clear
 3. Enforces latency budgets and handles timeouts gracefully
 4. Aggregates weighted scores using the decision engine
 5. Returns final GuardDecision with all metadata
 
-Early-exit thresholds:
+Tier structure:
+- Tier 0.5 (Prompt Security): prompt_structure (always passes) → prompt_injection (may block early)
 - Tier 1 (Heuristics): score < 0.2 → BLOCK, score > 0.9 → ALLOW
 - Tier 2 (Embedding): weighted_avg < 0.3 → BLOCK, > 0.85 → ALLOW
 - Tier 3 (HHEM): final decision
@@ -37,6 +38,8 @@ from hallucination_guard.validators.base import (
 from hallucination_guard.validators.heuristics import HeuristicsValidator
 from hallucination_guard.validators.embedding import EmbeddingValidator
 from hallucination_guard.validators.hhem import HHEMValidator
+from hallucination_guard.validators.prompt_structure import PromptStructureValidator
+from hallucination_guard.validators.prompt_injection import PromptInjectionValidator
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,8 @@ logger = logging.getLogger(__name__)
 
 # Mapping of validator names to their implementation classes
 VALIDATOR_REGISTRY: dict[str, type[BaseValidator]] = {
+    "prompt_structure": PromptStructureValidator,
+    "prompt_injection": PromptInjectionValidator,
     "heuristics": HeuristicsValidator,
     "embedding": EmbeddingValidator,
     "hhem": HHEMValidator,
@@ -108,12 +113,21 @@ class ValidationPipeline:
         self,
         input: ValidationInput,
     ) -> GuardDecision:
-        """Execute the three-tier validation cascade with early-exit logic.
+        """Execute the four-tier validation cascade with early-exit logic.
         
         Runs validators in tier order:
-        1. Tier 1 (Heuristics): if score < 0.2 or > 0.9, exit early
-        2. Tier 2 (Embedding): if weighted_avg < 0.3 or > 0.85, exit early
-        3. Tier 3 (HHEM): final decision
+        1. Tier 0.5 (Prompt Security):
+           - prompt_structure: Always analyzes, always passes (extracted metadata)
+           - prompt_injection: May block early if injection_risk > threshold
+        2. Tier 1 (Heuristics): if score < 0.2 or > 0.9, exit early
+        3. Tier 2 (Embedding): if weighted_avg < 0.3 or > 0.85, exit early
+        4. Tier 3 (HHEM): final decision
+        
+        Tier 0.5 behavior:
+        - prompt_structure runs first (always passes, analysis only)
+        - StructuredPrompt is injected into ValidationInput for downstream validators
+        - prompt_injection runs next (may block early if high risk)
+        - If injection_risk > (1.0 - threshold), returns block decision immediately
         
         Enforces latency budget: if elapsed time exceeds policy.latency_budget_ms,
         remaining validators are marked with timeout error.
@@ -164,8 +178,40 @@ class ValidationPipeline:
             result = self._run_validator(validator, input, validator_config.timeout_ms)
             results.append(result)
             
+            # Tier 0.5: Inject StructuredPrompt into ValidationInput for downstream use
+            if validator_config.name == "prompt_structure":
+                if result.metadata and "structured_prompt" in result.metadata:
+                    structured_prompt = result.metadata["structured_prompt"]
+                    input = input.model_copy(update={"structured_prompt": structured_prompt})
+            
             # Early-exit logic based on tier
             tier_num = self._get_tier_number(validator_config.name)
+            
+            # Tier 0.5: Prompt injection early-exit (block if high injection risk)
+            if validator_config.name == "prompt_injection":
+                if result.error is None:
+                    # Score < threshold means high injection risk
+                    # Invert: 0.0 = risky, 1.0 = clean
+                    injection_risk = 1.0 - result.score
+                    if injection_risk > (1.0 - validator_config.threshold):
+                        logger.debug(
+                            f"Tier 0.5: Prompt injection detected (risk={injection_risk:.2f}), "
+                            f"blocking early"
+                        )
+                        # Return block decision immediately
+                        latency_ms = (time.perf_counter() - start_time) * 1000
+                        return GuardDecision(
+                            decision="block",
+                            risk_score=injection_risk,
+                            confidence=1.0,
+                            output=input.output,
+                            evidence=f"Prompt injection detected: {result.evidence}",
+                            suggested_fix=None,
+                            validator_results=results,
+                            latency_ms=latency_ms,
+                            policy_name=self.policy.name,
+                            prompt_injection_risk=injection_risk,
+                        )
             
             if tier_num == 1:
                 # Tier 1 early-exit: score < 0.2 (clearly bad) or > 0.9 (clearly good)
@@ -274,15 +320,17 @@ class ValidationPipeline:
     
     @staticmethod
     def _get_tier_number(validator_name: str) -> int:
-        """Get the tier number for a validator (1 = heuristics, 2 = embedding, 3 = hhem).
+        """Get the tier number for a validator (0.5 = prompt security, 1 = heuristics, 2 = embedding, 3 = hhem).
         
         Args:
-            validator_name: Name of the validator (e.g., "heuristics", "embedding", "hhem")
+            validator_name: Name of the validator (e.g., "prompt_structure", "prompt_injection", "heuristics", "embedding", "hhem")
         
         Returns:
-            Tier number (1, 2, or 3)
+            Tier number (0, 1, 2, or 3)
         """
         tier_map = {
+            "prompt_structure": 0,
+            "prompt_injection": 0,
             "heuristics": 1,
             "embedding": 2,
             "hhem": 3,

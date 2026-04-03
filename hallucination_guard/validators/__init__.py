@@ -9,6 +9,8 @@ from hallucination_guard.validators.embedding import EmbeddingValidator
 from hallucination_guard.validators.hhem import HHEMValidator
 from hallucination_guard.validators.heuristics import HeuristicsValidator
 from hallucination_guard.validators.lynx import LynxValidator
+from hallucination_guard.validators.prompt_injection import PromptInjectionValidator
+from hallucination_guard.validators.prompt_structure import PromptStructureValidator
 from hallucination_guard.validators.safety import SafetyValidator
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     "HHEMValidator",
     "HeuristicsValidator",
     "LynxValidator",
+    "PromptInjectionValidator",
+    "PromptStructureValidator",
     "SafetyValidator",
 ]
