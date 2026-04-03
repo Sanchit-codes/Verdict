@@ -36,10 +36,16 @@ logger = logging.getLogger(__name__)
 # Try to import Langfuse for optional cloud export
 if TYPE_CHECKING:
     from langfuse import Langfuse
+    from hallucination_guard.core.decision import GuardDecision
 else:
     Langfuse = None
+    GuardDecision = None
     try:
         from langfuse import Langfuse  # noqa: F811
+    except ImportError:
+        pass
+    try:
+        from hallucination_guard.core.decision import GuardDecision  # noqa: F811
     except ImportError:
         pass
 
@@ -58,6 +64,9 @@ class GuardTrace(BaseModel):
         output: Model-generated output being validated
         metadata: Additional context (decision, risk_score, evidence, latency_ms, etc.)
         tags: List of tags for categorization (e.g., ["rag", "healthcare"])
+        prompt_injection_risk: Pre-computed prompt injection risk in [0.0, 1.0]
+        prompt_security_metadata: Additional prompt security analysis metadata
+        structured_prompt: Extracted structured prompt data from security metadata
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -69,13 +78,27 @@ class GuardTrace(BaseModel):
     output: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    prompt_injection_risk: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Pre-computed prompt injection risk from security analysis"
+    )
+    prompt_security_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional prompt security analysis metadata"
+    )
+    structured_prompt: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Extracted structured prompt data from security metadata"
+    )
 
     model_config = {"frozen": True}
 
     @classmethod
     def from_decision(
         cls,
-        decision: dict[str, Any],
+        decision: "GuardDecision | dict[str, Any]",
         prompt: str,
         output: str,
         context: Optional[str] = None,
@@ -84,13 +107,13 @@ class GuardTrace(BaseModel):
     ) -> "GuardTrace":
         """Create a GuardTrace from a validation decision.
 
-        Maps decision data to trace format for observability. Designed to work
-        with GuardDecision once that schema is implemented; currently accepts
-        a dict with decision, risk_score, evidence, and validation_results.
+        Maps decision data to trace format for observability, including prompt
+        security analysis metadata. Supports both GuardDecision objects and
+        legacy dicts for backward compatibility.
 
         Args:
-            decision: Decision dict with keys: id, decision, risk_score, evidence,
-                      validation_results (list of validator results)
+            decision: GuardDecision object or dict with decision, risk_score, evidence,
+                      validation_results, and prompt security metadata
             prompt: User prompt that triggered validation
             output: Model-generated output being validated
             context: Optional reference context used for validation
@@ -98,11 +121,7 @@ class GuardTrace(BaseModel):
             tags: Optional tags for categorization
 
         Returns:
-            GuardTrace instance with all decision metadata
-
-        Note:
-            Once GuardDecision schema is implemented in decision.py, this method
-            will be updated to accept GuardDecision objects directly.
+            GuardTrace instance with all decision metadata including prompt security data
         """
         input_data = {
             "prompt": prompt,
@@ -111,21 +130,80 @@ class GuardTrace(BaseModel):
             "domain": domain,
         }
 
-        metadata = {
-            "decision": decision.get("decision", "unknown"),
-            "risk_score": decision.get("risk_score", 0.5),
-            "evidence": decision.get("evidence", ""),
-            "validation_results": decision.get("validation_results", []),
-        }
+        # Support both GuardDecision objects and dicts for backward compatibility
+        is_guard_decision = hasattr(decision, "decision") and hasattr(decision, "risk_score")
+        
+        if is_guard_decision:
+            # Handle GuardDecision object
+            metadata = {
+                "decision": decision.decision,  # type: ignore[attr-defined]
+                "risk_score": decision.risk_score,  # type: ignore[attr-defined]
+                "evidence": decision.evidence,  # type: ignore[attr-defined]
+                "validation_results": [r.model_dump() for r in decision.validator_results],  # type: ignore[attr-defined]
+                "policy_name": decision.policy_name,  # type: ignore[attr-defined]
+                "latency_ms": decision.latency_ms,  # type: ignore[attr-defined]
+                "confidence": decision.confidence,  # type: ignore[attr-defined]
+            }
+            
+            if decision.suggested_fix:  # type: ignore[attr-defined]
+                metadata["suggested_fix"] = decision.suggested_fix  # type: ignore[attr-defined]
 
-        return cls(
-            id=decision.get("id", str(uuid4())),
-            timestamp=decision.get("timestamp", datetime.now(timezone.utc).isoformat()),
-            input=input_data,
-            output=output,
-            metadata=metadata,
-            tags=tags or [],
-        )
+            # Extract structured_prompt from prompt_security_metadata if available
+            structured_prompt: Optional[dict[str, Any]] = None
+            if decision.prompt_security_metadata:  # type: ignore[attr-defined]
+                sp = decision.prompt_security_metadata.get("structured_prompt")  # type: ignore[attr-defined]
+                if isinstance(sp, dict):
+                    structured_prompt = sp
+
+            return cls(
+                id=str(uuid4()),  # Generate new trace ID
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                input=input_data,
+                output=output,
+                metadata=metadata,
+                tags=tags or [],
+                prompt_injection_risk=decision.prompt_injection_risk,  # type: ignore[attr-defined]
+                prompt_security_metadata=decision.prompt_security_metadata,  # type: ignore[attr-defined]
+                structured_prompt=structured_prompt,
+            )
+        else:
+            # Handle legacy dict format for backward compatibility
+            metadata = {
+                "decision": decision.get("decision", "unknown"),
+                "risk_score": decision.get("risk_score", 0.5),
+                "evidence": decision.get("evidence", ""),
+                "validation_results": decision.get("validation_results", []),
+            }
+            
+            # Add optional fields from dict if present
+            if "policy_name" in decision:
+                metadata["policy_name"] = decision["policy_name"]
+            if "latency_ms" in decision:
+                metadata["latency_ms"] = decision["latency_ms"]
+            if "confidence" in decision:
+                metadata["confidence"] = decision["confidence"]
+            if "suggested_fix" in decision:
+                metadata["suggested_fix"] = decision["suggested_fix"]
+
+            # Extract structured_prompt if present in dict
+            structured_prompt = None
+            prompt_security_metadata = decision.get("prompt_security_metadata", {})
+            if isinstance(prompt_security_metadata, dict):
+                sp = prompt_security_metadata.get("structured_prompt")
+                if isinstance(sp, dict):
+                    structured_prompt = sp
+
+            return cls(
+                id=decision.get("id", str(uuid4())),
+                timestamp=decision.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                input=input_data,
+                output=output,
+                metadata=metadata,
+                tags=tags or [],
+                prompt_injection_risk=decision.get("prompt_injection_risk", 0.0),
+                prompt_security_metadata=prompt_security_metadata,
+                structured_prompt=structured_prompt,
+            )
 
 
 def export_trace(trace: GuardTrace, trace_dir: Optional[str] = None) -> None:
