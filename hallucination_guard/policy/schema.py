@@ -1,0 +1,56 @@
+"""
+Policy configuration schemas.
+
+Defines Pydantic models for validator configuration, mitigation strategies,
+and complete policy definitions.
+"""
+
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+class ValidatorConfig(BaseModel):
+    """Configuration for a single validator in the pipeline."""
+    
+    name: str = Field(..., description="Validator identifier (e.g., 'heuristics', 'embedding', 'hhem')")
+    enabled: bool = Field(default=True, description="Whether this validator is active")
+    weight: float = Field(..., ge=0.0, le=1.0, description="Weight in score aggregation (0.0-1.0)")
+    threshold: float = Field(..., ge=0.0, le=1.0, description="Minimum score to pass (0.0-1.0)")
+    timeout_ms: int = Field(..., gt=0, description="Maximum execution time in milliseconds")
+    
+    class Config:
+        frozen = True
+
+
+class MitigationConfig(BaseModel):
+    """Configuration for mitigation strategies when validation fails or degrades."""
+    
+    on_block: Literal["block", "regenerate", "allow", "abstain"] = Field(
+        default="block",
+        description="Action when validators signal hallucination"
+    )
+    on_timeout: Literal["block", "regenerate", "allow", "abstain"] = Field(
+        default="allow",
+        description="Action when validators exceed latency budget"
+    )
+    on_error: Literal["block", "regenerate", "allow", "abstain"] = Field(
+        default="abstain",
+        description="Action when validators crash or error"
+    )
+    
+    class Config:
+        frozen = True
+
+
+class PolicyConfig(BaseModel):
+    """Complete policy definition for the HallucinationGuard pipeline."""
+    
+    name: str = Field(..., description="Policy identifier")
+    description: str = Field(default="", description="Human-readable policy description")
+    latency_budget_ms: int = Field(..., gt=0, description="Maximum total pipeline latency in milliseconds")
+    risk_threshold: float = Field(..., ge=0.0, le=1.0, description="Maximum acceptable risk score (0.0-1.0)")
+    validators: list[ValidatorConfig] = Field(..., min_length=1, description="List of validator configurations")
+    mitigation: MitigationConfig = Field(default_factory=MitigationConfig, description="Mitigation strategies")
+    
+    class Config:
+        frozen = True

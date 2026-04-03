@@ -1,0 +1,28 @@
+name: "default"
+description: "Balanced general-purpose policy with all validation tiers enabled"
+latency_budget_ms: 100
+risk_threshold: 0.5
+
+validators:
+  - name: "heuristics"
+    enabled: true
+    weight: 0.2
+    threshold: 0.5
+    timeout_ms: 5
+  
+  - name: "embedding"
+    enabled: true
+    weight: 0.3
+    threshold: 0.7
+    timeout_ms: 30
+  
+  - name: "hhem"
+    enabled: true
+    weight: 0.5
+    threshold: 0.7
+    timeout_ms: 80
+
+mitigation:
+  on_block: "block"
+  on_timeout: "allow"
+  on_error: "abstain"

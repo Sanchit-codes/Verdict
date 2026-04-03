@@ -1,0 +1,28 @@
+name: "rag_strict"
+description: "Strict policy for high-risk RAG applications (healthcare, finance, legal)"
+latency_budget_ms: 150
+risk_threshold: 0.3
+
+validators:
+  - name: "heuristics"
+    enabled: true
+    weight: 0.2
+    threshold: 0.5
+    timeout_ms: 5
+  
+  - name: "embedding"
+    enabled: true
+    weight: 0.3
+    threshold: 0.75
+    timeout_ms: 30
+  
+  - name: "hhem"
+    enabled: true
+    weight: 0.5
+    threshold: 0.8
+    timeout_ms: 100
+
+mitigation:
+  on_block: "regenerate"
+  on_timeout: "block"
+  on_error: "block"
