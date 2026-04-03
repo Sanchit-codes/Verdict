@@ -205,6 +205,14 @@ class GuardedGemini:
                     domain=domain,
                 )
 
+                # Log prompt security metadata if available
+                if decision.prompt_security_metadata:
+                    logger.info(
+                        f"Prompt analysis: intent={decision.prompt_security_metadata.get('intent')}, "
+                        f"sensitivity_tags={decision.prompt_security_metadata.get('sensitivity_tags')}, "
+                        f"injection_risk={decision.prompt_injection_risk:.2f}"
+                    )
+
                 # Handle decision
                 if decision.decision == "allow":
                     logger.debug(
