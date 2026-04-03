@@ -398,3 +398,57 @@ class TestGuardMultiplePolicies:
 
         assert guard1.policy.name != guard2.policy.name
         assert guard1.pipeline is not guard2.pipeline
+
+
+class TestTraceExport:
+    """Test trace export integration in Guard.validate()."""
+
+    def test_trace_export_does_not_crash_validation(self):
+        """Test that trace export failures don't crash validation."""
+        guard = Guard(policy="default", trace_enabled=True)
+
+        decision = guard.validate(
+            prompt="What is AI?",
+            output="AI is artificial intelligence.",
+            context="AI stands for artificial intelligence.",
+        )
+
+        # Validation should still succeed even if trace export has issues
+        assert decision is not None
+        assert isinstance(decision.decision, str)
+        assert decision.decision in ("allow", "block", "regenerate", "abstain")
+
+    def test_validate_with_trace_disabled(self):
+        """Test validate() works with trace_enabled=False."""
+        guard = Guard(policy="default", trace_enabled=False)
+
+        decision = guard.validate(
+            prompt="What is Python?",
+            output="Python is a programming language.",
+            context="Python is popular.",
+        )
+
+        assert decision is not None
+        assert hasattr(decision, "decision")
+
+    def test_validate_and_check_decision_fields(self):
+        """Smoke test: validate() returns complete GuardDecision."""
+        guard = Guard(policy="default", trace_enabled=False)
+
+        decision = guard.validate(
+            prompt="What is ML?",
+            output="ML stands for machine learning.",
+            context="Machine learning is a subset of AI.",
+            domain="test",
+        )
+
+        # Verify all required fields are present
+        assert decision.decision in ("allow", "block", "regenerate", "abstain")
+        assert 0.0 <= decision.risk_score <= 1.0
+        assert 0.0 <= decision.confidence <= 1.0
+        assert decision.output is not None
+        assert decision.evidence is not None
+        assert decision.validator_results is not None
+        assert decision.latency_ms > 0.0
+        assert decision.policy_name is not None
+
