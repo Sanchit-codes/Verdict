@@ -2,20 +2,38 @@ name: "chatbot"
 description: "Relaxed low-latency policy for conversational chatbots (HHEM disabled)"
 latency_budget_ms: 50
 risk_threshold: 0.6
+enable_prompt_validators: true
+prompt_injection_threshold: 0.5
 
 validators:
+  # TIER 0.5: Prompt Security
+  - name: "prompt_structure"
+    enabled: true
+    weight: 0.0
+    threshold: 1.0
+    timeout_ms: 20
+  
+  - name: "prompt_injection"
+    enabled: true
+    weight: 0.05
+    threshold: 0.6
+    timeout_ms: 10
+  
+  # TIER 1: Heuristics
   - name: "heuristics"
     enabled: true
     weight: 0.4
     threshold: 0.4
     timeout_ms: 5
   
+  # TIER 2: Embedding Similarity
   - name: "embedding"
     enabled: true
     weight: 0.6
     threshold: 0.65
     timeout_ms: 30
   
+  # TIER 3: HHEM Classifier (disabled for low-latency)
   - name: "hhem"
     enabled: false
     weight: 0.0

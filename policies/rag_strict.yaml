@@ -2,20 +2,38 @@ name: "rag_strict"
 description: "Strict policy for high-risk RAG applications (healthcare, finance, legal)"
 latency_budget_ms: 150
 risk_threshold: 0.3
+enable_prompt_validators: true
+prompt_injection_threshold: 0.2
 
 validators:
+  # TIER 0.5: Prompt Security
+  - name: "prompt_structure"
+    enabled: true
+    weight: 0.0
+    threshold: 1.0
+    timeout_ms: 20
+  
+  - name: "prompt_injection"
+    enabled: true
+    weight: 0.15
+    threshold: 0.8
+    timeout_ms: 10
+  
+  # TIER 1: Heuristics
   - name: "heuristics"
     enabled: true
     weight: 0.2
     threshold: 0.5
     timeout_ms: 5
   
+  # TIER 2: Embedding Similarity
   - name: "embedding"
     enabled: true
     weight: 0.3
     threshold: 0.75
     timeout_ms: 30
   
+  # TIER 3: HHEM Classifier
   - name: "hhem"
     enabled: true
     weight: 0.5

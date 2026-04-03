@@ -1,24 +1,11 @@
-name: "default"
-description: "Balanced general-purpose policy with prompt security and all validation tiers enabled"
-latency_budget_ms: 150
+name: "no_prompt_check"
+description: "Legacy policy with prompt validators disabled (backward compatibility)"
+latency_budget_ms: 100
 risk_threshold: 0.5
-enable_prompt_validators: true
-prompt_injection_threshold: 0.3
+enable_prompt_validators: false
+prompt_injection_threshold: 0.0
 
 validators:
-  # TIER 0.5: Prompt Security
-  - name: "prompt_structure"
-    enabled: true
-    weight: 0.0
-    threshold: 1.0
-    timeout_ms: 20
-  
-  - name: "prompt_injection"
-    enabled: true
-    weight: 0.1
-    threshold: 0.7
-    timeout_ms: 10
-  
   # TIER 1: Heuristics
   - name: "heuristics"
     enabled: true
