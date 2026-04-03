@@ -8,6 +8,8 @@ from hallucination_guard.validators.base import (
 from hallucination_guard.validators.embedding import EmbeddingValidator
 from hallucination_guard.validators.hhem import HHEMValidator
 from hallucination_guard.validators.heuristics import HeuristicsValidator
+from hallucination_guard.validators.lynx import LynxValidator
+from hallucination_guard.validators.safety import SafetyValidator
 
 __all__ = [
     "BaseValidator",
@@ -16,4 +18,6 @@ __all__ = [
     "EmbeddingValidator",
     "HHEMValidator",
     "HeuristicsValidator",
+    "LynxValidator",
+    "SafetyValidator",
 ]
