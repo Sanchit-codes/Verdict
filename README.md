@@ -76,7 +76,16 @@ response = guarded.generate(
 ## Architecture
 
 ```
-User Prompt → LLM (e.g., Gemini 2.0)
+User Prompt
+    ↓
+[Tier 0.5: Prompt Security] (<15ms)
+    ├─ Intent Detection (question, instruction, creative, etc.)
+    ├─ Injection Detection (jailbreak, context-switching, role injection)
+    ├─ PII Detection (emails, SSNs, credit cards)
+    ├─ Sensitivity Tagging (medical, financial, legal domains)
+    └─ Entity Extraction (key entities and topics)
+    ↓
+LLM Generation (e.g., Gemini 2.0)
     ↓
 HallucinationGuard SDK (3-tier cascade):
     Tier 1: Heuristics (<5ms)
@@ -92,6 +101,20 @@ HallucinationGuard SDK (3-tier cascade):
     ↓
 Output (if allowed)
 ```
+
+## Automatic Prompt Analysis (Tier 0.5)
+
+HallucinationGuard automatically analyzes every input prompt before validating LLM output:
+
+- **Intent Detection**: Classifies prompts as question, instruction, creative, statement, chat, or system command
+- **Security Checks**: Detects prompt injection attempts, jailbreaks, context switching, and role injection attacks
+- **Sensitivity Tagging**: Flags prompts touching sensitive domains (medical, financial, legal, personal, proprietary)
+- **PII Detection**: Identifies and flags personally identifiable information (emails, SSNs, credit cards, phone numbers)
+- **Entity Extraction**: Pulls key named entities, topics, and contexts from prompts
+
+All structured metadata from Tier 0.5 is included in the decision result for downstream handling and routing decisions. For high-sensitivity domains, you can tighten validation thresholds automatically.
+
+Learn more: [Structured Prompt Processing](docs/PROMPT_STRUCTURE.md)
 
 ## Pre-Configured Policies
 
