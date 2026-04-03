@@ -29,6 +29,8 @@ class GuardDecision(BaseModel):
         validator_results: Individual validation results from all tiers
         latency_ms: Total pipeline execution time in milliseconds
         policy_name: Name of the policy used for decision making
+        prompt_injection_risk: Pre-computed prompt injection risk in [0.0, 1.0]
+        prompt_security_metadata: Additional prompt security analysis metadata
     """
     
     decision: Literal["allow", "block", "regenerate", "abstain"]
@@ -40,6 +42,16 @@ class GuardDecision(BaseModel):
     validator_results: list[ValidationResult]
     latency_ms: float = Field(ge=0.0)
     policy_name: str
+    prompt_injection_risk: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Pre-computed prompt injection risk from security analysis in [0.0, 1.0]"
+    )
+    prompt_security_metadata: dict[str, str | int | float | bool] = Field(
+        default_factory=dict,
+        description="Additional prompt security analysis metadata (patterns, intent, sensitivity)"
+    )
     
     model_config = {"frozen": True}
 
