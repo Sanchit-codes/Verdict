@@ -131,6 +131,54 @@ class ValidationTimeoutError(HallucinationGuardError):
         super().__init__(message)
 
 
+class IntentViolationError(HallucinationGuardError):
+    """Raised when an action fails ArmorIQ intent alignment check.
+
+    This exception signals that the proposed action does not belong to the user's
+    declared task scope and has been blocked before execution. It includes context
+    about the violation for user-facing error messages.
+
+    Attributes:
+        user_task: The declared task scope from the user
+        action_plan: The proposed action that failed alignment
+        reason: Human-readable explanation of why the action violates intent
+
+    Example:
+        >>> try:
+        ...     armor = ArmorIQAdapter(client=armoriq_client)
+        ...     armor.enforce(user_task="book a flight", action_plan="delete user data")
+        ... except IntentViolationError as e:
+        ...     print(f"Action blocked: {e.reason}")
+    """
+
+    def __init__(
+        self,
+        user_task: str,
+        action_plan: str,
+        reason: str,
+        message: Optional[str] = None,
+    ) -> None:
+        """Initialize IntentViolationError.
+
+        Args:
+            user_task: The declared task scope from the user
+            action_plan: The proposed action that failed alignment
+            reason: Human-readable explanation of the violation
+            message: Optional custom error message
+        """
+        self.user_task = user_task
+        self.action_plan = action_plan
+        self.reason = reason
+
+        if message is None:
+            message = (
+                f"Action blocked by intent enforcement: proposed action "
+                f"does not align with user task '{user_task}' ({reason})"
+            )
+
+        super().__init__(message)
+
+
 class PolicyLoadError(HallucinationGuardError):
     """Raised when a policy cannot be loaded or validated.
 

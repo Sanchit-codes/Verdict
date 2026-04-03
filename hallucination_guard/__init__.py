@@ -16,6 +16,7 @@ from hallucination_guard.core.decision import GuardDecision
 from hallucination_guard.core.exceptions import (
     HallucinationBlockedError,
     HallucinationGuardError,
+    IntentViolationError,
     PolicyLoadError,
     ValidationTimeoutError,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "GuardDecision",
     "HallucinationBlockedError",
     "HallucinationGuardError",
+    "IntentViolationError",
     "PolicyLoadError",
     "ValidationTimeoutError",
 ]
