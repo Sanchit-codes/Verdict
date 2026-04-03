@@ -196,7 +196,6 @@ class Guard:
             try:
                 trace = GuardTrace.from_decision(
                     decision={
-                        "id": decision.model_dump().get("id", ""),
                         "decision": decision.decision,
                         "risk_score": decision.risk_score,
                         "evidence": decision.evidence,
