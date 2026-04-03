@@ -113,3 +113,18 @@ class BaseValidator(ABC):
             or other runtime dependencies. Default implementation returns True.
         """
         return True
+
+
+# Rebuild models after StructuredPrompt is imported
+def _rebuild_models() -> None:
+    """Rebuild Pydantic models with forward references after imports."""
+    try:
+        from hallucination_guard.prompts.schema import StructuredPrompt  # noqa: F401
+        ValidationInput.model_rebuild()
+    except ImportError:
+        # If prompts module not available, skip rebuild
+        pass
+
+
+_rebuild_models()
+

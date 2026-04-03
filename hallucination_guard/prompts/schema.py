@@ -113,9 +113,9 @@ class StructuredPrompt(BaseModel):
         le=1.0,
         description="Pre-computed injection risk score in [0.0, 1.0] where 1.0 = high risk"
     )
-    metadata: dict[str, str | int | float | bool] = Field(
+    metadata: dict = Field(
         default_factory=dict,
-        description="Additional flexible metadata (tokens, language, etc.)"
+        description="Additional flexible metadata (tokens, language, entities, sensitivity_tags, topics, PII findings, etc.)"
     )
     
     model_config = {"frozen": True}
