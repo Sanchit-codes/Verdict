@@ -1,0 +1,200 @@
+# HallucinationGuard SDK
+
+**Vendor-neutral Python SDK for preventing AI hallucinations through inline validation—without LLM-as-a-judge calls.**
+
+## Overview
+
+HallucinationGuard validates AI-generated text using a fast, deterministic three-tier cascade (heuristics → embeddings → classifier models) before it reaches users. No mandatory server infrastructure. Pure Python library optimized for production.
+
+### Core Features
+
+- **3-Tier Validation Cascade**: Fast heuristics (<5ms) → embedding similarity (<30ms) → HHEM classifier (<80ms)
+- **Zero Server Dependencies**: Pure Python library, no databases or control planes required
+- **CPU-Optimized**: Target p95 latency < 100ms on CPU-only deployments
+- **Graceful Degradation**: One broken validator never crashes the pipeline
+- **Vendor-Neutral**: Works with any LLM (Gemini, OpenAI, local models, etc.)
+- **Policy-Driven**: YAML-based policies for domain-specific tuning (RAG, chatbots, creative writing)
+- **ArmorIQ Integration**: Optional pre-execution intent enforcement layer
+
+## Quick Start
+
+### Installation
+
+```bash
+# Install with all extras (recommended for development)
+pip install -e ".[gemini,langchain,observability,dev]"
+
+# Minimal runtime installation
+pip install hallucination-guard
+```
+
+### Basic Usage
+
+```python
+from hallucination_guard import Guard
+
+# Initialize guard with a policy
+guard = Guard(policy="rag_strict")
+
+# Validate output
+decision = guard.validate(
+    prompt="What is the capital of France?",
+    output="The capital of France is Paris.",
+    context="France is a country in Europe. Its capital city is Paris.",
+)
+
+# Check decision
+if decision.decision == "allow":
+    print(f"✓ Safe to return (risk={decision.risk_score:.2f})")
+elif decision.decision == "block":
+    print(f"✗ Blocked (risk={decision.risk_score:.2f})")
+```
+
+### With Gemini Integration
+
+```python
+from hallucination_guard.integrations import GuardedGemini
+import google.generativeai as genai
+
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+base_model = genai.GenerativeModel("gemini-2.0-flash")
+
+# Wrap with guard (auto-retry on hallucinations)
+guarded = GuardedGemini(
+    model=base_model,
+    policy="rag_strict",
+    max_retries=2
+)
+
+# Generate with automatic validation
+response = guarded.generate(
+    prompt="Summarize this research paper.",
+    context=paper_text
+)
+```
+
+## Architecture
+
+```
+User Prompt → LLM (e.g., Gemini 2.0)
+    ↓
+HallucinationGuard SDK (3-tier cascade):
+    Tier 1: Heuristics (<5ms)
+      ├─ context_coverage_ratio
+      ├─ entity_overlap_check
+      └─ length_anomaly_check
+    Tier 2: Embedding Similarity (<30ms)
+      └─ cosine(context_embed, output_embed)
+    Tier 3: HHEM Classifier (<80ms)
+      └─ vectara/hallucination_evaluation_model
+    Decision Engine:
+      └─ weighted_avg → allow/block/regenerate/abstain
+    ↓
+Output (if allowed)
+```
+
+## Pre-Configured Policies
+
+- **`default.yaml`**: Balanced general-purpose policy
+- **`rag_strict.yaml`**: High-risk domains (healthcare, finance)—lower threshold, regenerate on failure
+- **`chatbot.yaml`**: Low-latency chatbots—heuristics + embeddings only
+
+Custom policies can be created via YAML configuration.
+
+## Development
+
+### Setup
+
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in editable mode with dev dependencies
+pip install -e ".[gemini,langchain,observability,dev]"
+```
+
+### Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=hallucination_guard --cov-report=html
+
+# Fast mode (skip model downloads)
+HG_DISABLE_HHEM=true pytest tests/test_heuristics.py
+```
+
+### Code Quality
+
+```bash
+# Format
+black hallucination_guard/ tests/ examples/
+
+# Lint
+ruff check hallucination_guard/ tests/ examples/
+
+# Type check
+mypy hallucination_guard/ --strict
+```
+
+## Technology Stack
+
+**Core Runtime:**
+- Python ≥3.10
+- pydantic ^2.7 (schema validation)
+- pyyaml ^6.0 (policy parsing)
+- sentence-transformers ^3.1 (embedding similarity)
+- torch ^2.3 CPU (backend)
+- transformers ^4.44 (HHEM model)
+- numpy ^1.26 (score aggregation)
+
+**Optional Integrations:**
+- google-generativeai (Gemini integration)
+- langchain-core (RAG chains)
+- langfuse (observability & tracing)
+
+**Models (auto-downloaded):**
+- HHEM 2.1-Open (~400MB): Tier 3 faithfulness classifier
+- all-MiniLM-L6-v2 (~80MB): Tier 2 embedding model
+
+## Design Principles
+
+1. **No LLM-as-a-judge** in the runtime validation pipeline
+2. **Zero mandatory server infrastructure** (pure Python library)
+3. **Graceful degradation always**—never crash the pipeline
+4. **Target latency**: p95 < 100ms across all tiers, CPU-only
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions welcome! Please ensure:
+- All tests pass (`pytest`)
+- Code is formatted (`black`) and linted (`ruff`)
+- Type checking passes (`mypy --strict`)
+- New features include unit tests (min 80% coverage)
+
+## Roadmap
+
+- [x] Project structure and dependency setup
+- [ ] Core validation engine (Guard, Pipeline, Decision)
+- [ ] Tier 1: Heuristics validator
+- [ ] Tier 2: Embedding validator
+- [ ] Tier 3: HHEM validator
+- [ ] Policy system (YAML loader, schema)
+- [ ] Gemini integration (GuardedGemini)
+- [ ] ArmorIQ integration (intent enforcement)
+- [ ] LangChain integration
+- [ ] CLI tools (eval, benchmark)
+- [ ] HaluBench evaluation
+- [ ] Phase 2: Lynx 8B validator (GPU)
+
+---
+
+**Status**: Early Development (v0.1.0)  
+**Target**: Production-ready SDK for preventing AI hallucinations
