@@ -255,6 +255,9 @@ class HallucinationGuardCallback:
             response.metadata["guard_evidence"] = decision.evidence
             response.metadata["guard_latency_ms"] = decision.latency_ms
             response.metadata["guard_confidence"] = decision.confidence
+            # Attach prompt security metadata
+            response.metadata["guard_prompt_injection_risk"] = decision.prompt_injection_risk
+            response.metadata["guard_prompt_security_metadata"] = decision.prompt_security_metadata
 
             # Log decision
             logger.debug(
