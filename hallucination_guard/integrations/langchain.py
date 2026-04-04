@@ -5,7 +5,11 @@ HallucinationGuard validation into LangChain RAG chains. It operates as a
 callback handler that captures context from retrievers and validates LLM
 output before returning to the user.
 
-Typical usage:
+It also optionally integrates ArmorIQ intent enforcement: when an
+ArmorIQAdapter is passed, every tool call observed via on_tool_end is
+enforced against the declared user_task before execution continues.
+
+Typical usage (text validation only):
     >>> from langchain.chains import RetrievalQA
     >>> from hallucination_guard.integrations import HallucinationGuardCallback
     >>>
@@ -14,23 +18,30 @@ Typical usage:
     ...     retriever=vector_store.as_retriever()
     ... )
     >>>
-    >>> # Add guard as callback
     >>> guard_callback = HallucinationGuardCallback(policy="rag_strict")
-    >>>
     >>> result = chain.run(
     ...     "What did the author say about AI safety?",
     ...     callbacks=[guard_callback]
     ... )
-    >>>
-    >>> # Check guard decision in metadata
     >>> if result.metadata.get("guard_decision") == "block":
     ...     print(f"Blocked: {result.metadata['guard_evidence']}")
+
+With ArmorIQ enforcement:
+    >>> from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
+    >>>
+    >>> guard_callback = HallucinationGuardCallback(
+    ...     policy="rag_strict",
+    ...     armoriq=ArmorIQAdapter(client=RuleBasedArmorIQClient()),
+    ...     user_task="search for flights to Paris",
+    ... )
+    >>> # Tool calls observed during chain execution are auto-enforced.
 
 Design principles:
 - Optional integration: langchain_core is an optional dependency
 - Graceful degradation: callback failures never crash the LangChain pipeline
 - Context capture: captured documents from retriever are joined as context
 - Validation timing: validation occurs on llm_end, after generation completes
+- ArmorIQ enforcement: tool calls enforced on tool_end, before execution result returned
 - Immutable results: guard decisions are attached to metadata, never mutating output
 """
 
@@ -49,6 +60,7 @@ from hallucination_guard.core.guard import Guard
 from hallucination_guard.core.decision import GuardDecision
 from hallucination_guard.core.exceptions import (
     HallucinationBlockedError,
+    IntentViolationError,
     PolicyLoadError,
 )
 from hallucination_guard.policy.schema import PolicyConfig
@@ -60,13 +72,13 @@ class HallucinationGuardCallback:
     """Callback handler for LangChain RAG chains with HallucinationGuard validation.
 
     HallucinationGuardCallback integrates HallucinationGuard validation into LangChain
-    chains by capturing context from retrievers and validating LLM output. It implements
-    the LangChain callback interface (BaseCallbackHandler) and gracefully handles
-    validation failures to prevent pipeline crashes.
+    chains by capturing context from retrievers and validating LLM output. It also
+    optionally integrates ArmorIQ intent enforcement for tool calls.
 
-    The callback operates in two main phases:
+    The callback operates in three main phases:
     1. **Context capture** (on_retriever_end): Join retrieved documents as validation context
-    2. **Output validation** (on_llm_end): Validate LLM output and attach decision to metadata
+    2. **Tool enforcement** (on_tool_end): If ArmorIQ is configured, enforce tool call alignment
+    3. **Output validation** (on_llm_end): Validate LLM output and attach decision to metadata
 
     If langchain_core is not installed, instantiation will raise ImportError with
     installation instructions.
@@ -74,55 +86,54 @@ class HallucinationGuardCallback:
     Attributes:
         guard: The initialized Guard instance for validation
         policy: The loaded PolicyConfig governing validation behavior
-        context: Thread-local storage for captured retriever context
+        armoriq: Optional ArmorIQAdapter for automatic tool call enforcement
+        user_task: Declared task scope used for ArmorIQ enforcement
 
-    Example:
-        >>> from langchain.chains import RetrievalQA
-        >>> from hallucination_guard.integrations import HallucinationGuardCallback
-        >>>
+    Example (text validation only):
         >>> guard_callback = HallucinationGuardCallback(policy="rag_strict")
-        >>>
-        >>> chain = RetrievalQA.from_chain_type(
-        ...     llm=llm,
-        ...     retriever=vector_store.as_retriever()
+        >>> result = chain.run("What is AI?", callbacks=[guard_callback])
+        >>> print(result.metadata["guard_decision"])
+
+    Example (with ArmorIQ):
+        >>> from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
+        >>> guard_callback = HallucinationGuardCallback(
+        ...     policy="rag_strict",
+        ...     armoriq=ArmorIQAdapter(client=RuleBasedArmorIQClient()),
+        ...     user_task="search for flights",
         ... )
-        >>>
-        >>> result = chain.run(
-        ...     "What is AI?",
-        ...     callbacks=[guard_callback]
-        ... )
-        >>>
-        >>> # Check validation decision
-        >>> if "guard_decision" in result.metadata:
-        ...     print(f"Decision: {result.metadata['guard_decision']}")
+        >>> # Tool calls are automatically enforced during chain execution
     """
 
     def __init__(
         self,
         policy: Union[str, Path, PolicyConfig] = "default",
+        armoriq: Optional[Any] = None,
+        user_task: Optional[str] = None,
     ) -> None:
-        """Initialize HallucinationGuardCallback with a validation policy.
+        """Initialize HallucinationGuardCallback.
 
         Args:
             policy: Validation policy (name, path, or PolicyConfig object).
                    Defaults to "default".
+            armoriq: Optional ArmorIQAdapter. When set, every tool call observed
+                    via on_tool_end is enforced against user_task before the
+                    LangChain chain receives the result. Raises IntentViolationError
+                    on misaligned tool calls, halting the chain.
+                    Pass ArmorIQAdapter(client=RuleBasedArmorIQClient()) for offline
+                    enforcement. Defaults to None (no enforcement).
+            user_task: Declared task scope for ArmorIQ enforcement. Falls back to
+                      the captured prompt if not set. Defaults to None.
 
         Raises:
-            ImportError: If langchain_core is not installed
-            PolicyLoadError: If policy cannot be loaded or validated
-            ValueError: If Guard initialization fails
-
-        Example:
-            >>> callback = HallucinationGuardCallback(policy="rag_strict")
+            ImportError: If langchain_core is not installed.
+            PolicyLoadError: If policy cannot be loaded or validated.
         """
-        # Verify langchain_core is available
         if BaseCallbackHandler is None:
             raise ImportError(
                 "langchain-core is required for HallucinationGuardCallback. "
                 "Install it with: pip install langchain-core"
             )
 
-        # Initialize Guard with policy
         try:
             self.guard = Guard(policy=policy)
             self.policy = self.guard.policy
@@ -132,12 +143,21 @@ class HallucinationGuardCallback:
                 reason=e.reason,
             ) from e
 
-        # Storage for captured retriever context (per callback instance)
+        # Storage for captured retriever context and prompt (per callback instance)
         self._context: Optional[str] = None
         self._prompt: Optional[str] = None
 
+        # ArmorIQ configuration
+        self.armoriq = armoriq
+        self.user_task = user_task
+
+        armor_mode = "disabled"
+        if armoriq is not None:
+            armor_mode = "stub" if armoriq.client is None else "enforcement"
+
         logger.debug(
-            f"HallucinationGuardCallback initialized with policy '{self.policy.name}'"
+            f"HallucinationGuardCallback initialized: policy='{self.policy.name}', "
+            f"armoriq={armor_mode}"
         )
 
     def on_retriever_end(
@@ -255,9 +275,17 @@ class HallucinationGuardCallback:
             response.metadata["guard_evidence"] = decision.evidence
             response.metadata["guard_latency_ms"] = decision.latency_ms
             response.metadata["guard_confidence"] = decision.confidence
-            # Attach prompt security metadata
             response.metadata["guard_prompt_injection_risk"] = decision.prompt_injection_risk
             response.metadata["guard_prompt_security_metadata"] = decision.prompt_security_metadata
+            # Attach ArmorIQ enforcement metadata if available
+            if decision.action_enforcement is not None:
+                response.metadata["guard_action_enforcement"] = {
+                    "enforced": decision.action_enforcement.enforced,
+                    "allowed": decision.action_enforcement.allowed,
+                    "user_task": decision.action_enforcement.user_task,
+                    "action_plan": decision.action_enforcement.action_plan,
+                    "reason": decision.action_enforcement.reason,
+                }
 
             # Log decision
             logger.debug(
@@ -318,6 +346,58 @@ class HallucinationGuardCallback:
         except Exception as e:
             logger.warning(f"Failed to capture prompt: {e}")
             self._prompt = None
+
+    def on_tool_end(
+        self,
+        output: str,
+        *,
+        run_id: str,
+        parent_run_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        """Enforce ArmorIQ intent alignment on tool output/calls.
+
+        This callback is invoked when a LangChain tool finishes executing.
+        If an ArmorIQAdapter is configured, the tool name + output are checked
+        against the declared user_task. A misaligned tool call raises
+        IntentViolationError, halting the chain before the result is used.
+
+        Graceful degradation: if ArmorIQ enforcement itself throws an unexpected
+        error (other than IntentViolationError), it is logged and the chain
+        continues normally.
+
+        Args:
+            output: The output/result string from the tool.
+            run_id: Unique identifier for the tool run.
+            parent_run_id: Optional parent run identifier.
+            **kwargs: May include 'name' (tool name) passed by some LangChain versions.
+
+        Raises:
+            IntentViolationError: If ArmorIQ is configured and detects a
+                                 misaligned tool call.
+        """
+        if self.armoriq is None:
+            return
+
+        try:
+            # Resolve tool name if provided by LangChain
+            tool_name = kwargs.get("name", "unknown_tool")
+            action_plan = f"{tool_name}: {output}" if tool_name != "unknown_tool" else output
+            task = self.user_task or self._prompt or "unknown task"
+
+            logger.debug(
+                f"ArmorIQ tool enforcement: task='{task}', "
+                f"action='{action_plan[:80]}...'"
+            )
+            self.armoriq.enforce(task, action_plan)
+            logger.debug("ArmorIQ: tool call allowed")
+
+        except IntentViolationError:
+            # Re-raise to halt the LangChain chain
+            raise
+        except Exception as e:
+            # Any other error: log and continue (graceful degradation)
+            logger.warning(f"ArmorIQ tool enforcement failed unexpectedly: {e}. Allowing action.")
 
     def is_configured(self) -> bool:
         """Check if HallucinationGuardCallback is properly configured and ready.

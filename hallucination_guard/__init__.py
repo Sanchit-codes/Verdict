@@ -4,7 +4,9 @@ HallucinationGuard SDK - Vendor-neutral AI hallucination prevention through inli
 Core exports:
     Guard: Main validation API
     GuardDecision: Validation decision result
+    ActionEnforcementResult: ArmorIQ enforcement result attached to GuardDecision
     HallucinationBlockedError: Raised when output is blocked
+    IntentViolationError: Raised when an action violates declared intent
     ValidationTimeoutError: Raised when validation exceeds budget
     PolicyLoadError: Raised when policy cannot be loaded
 """
@@ -12,7 +14,7 @@ Core exports:
 __version__ = "0.1.0"
 
 from hallucination_guard.core.guard import Guard
-from hallucination_guard.core.decision import GuardDecision
+from hallucination_guard.core.decision import ActionEnforcementResult, GuardDecision
 from hallucination_guard.core.exceptions import (
     HallucinationBlockedError,
     HallucinationGuardError,
@@ -25,6 +27,7 @@ __all__ = [
     "__version__",
     "Guard",
     "GuardDecision",
+    "ActionEnforcementResult",
     "HallucinationBlockedError",
     "HallucinationGuardError",
     "IntentViolationError",
