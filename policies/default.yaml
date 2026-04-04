@@ -6,6 +6,9 @@ enable_prompt_validators: true
 prompt_injection_threshold: 0.3
 
 validators:
+  # Timeout budgets based on observed p95 latencies with singleton-cached models.
+  # Embedding: ~20-50ms (2 encodes), HHEM: ~40-50ms (model.predict())
+  
   # TIER 0.5: Prompt Security
   - name: "prompt_structure"
     enabled: true
@@ -31,7 +34,7 @@ validators:
     enabled: true
     weight: 0.3
     threshold: 0.7
-    timeout_ms: 30
+    timeout_ms: 50  # Updated: 2x encode (~10ms each) + overhead with singleton model
   
   # TIER 3: HHEM Classifier
   - name: "hhem"
