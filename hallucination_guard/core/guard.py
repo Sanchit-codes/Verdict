@@ -106,6 +106,7 @@ class Guard:
         armoriq: Optional[Any] = None,
         preload_models: bool = False,
         preprocessing: bool = False,
+        fast_mode: bool = False,
     ) -> None:
         """Initialize Guard with a policy configuration.
 
@@ -128,6 +129,9 @@ class Guard:
                           ``generate_and_validate()``. Initialises PromptAnalyzer,
                           ContextManager, and PromptCompactor. Has no effect on the
                           existing ``validate()`` method. Defaults to False.
+            fast_mode: When True, prefer low-latency validation by disabling heavy
+                       Tier 2 (embedding) and Tier 3 (HHEM) validators at runtime,
+                       even if enabled in the policy. Defaults to False.
 
         Raises:
             PolicyLoadError: If policy cannot be loaded or validated.
@@ -159,8 +163,30 @@ class Guard:
         # Store prompt validator setting
         self.enable_prompt_validators = enable_prompt_validators
 
-        # Initialize pipeline with loaded policy
-        self.pipeline = ValidationPipeline(self.policy)
+        # Fast mode: disable heavy validators (embedding + HHEM) at runtime,
+        # regardless of what the policy enables. This is a coarse, per-Guard
+        # toggle intended for environments where model loading is too slow.
+        self.fast_mode = fast_mode
+
+        # Build an effective policy view for this Guard instance. PolicyConfig
+        # and ValidatorConfig are frozen, so we must not mutate them in place.
+        # Instead we create a shallow copy with validators adjusted according to
+        # fast_mode. Other Guard instances using the same PolicyConfig remain
+        # unaffected.
+        if self.fast_mode:
+            disabled = {"embedding", "hhem"}
+            validators = [
+                v for v in self.policy.validators if v.name not in disabled
+            ]
+            self._effective_policy = self.policy.model_copy(update={"validators": validators})
+        else:
+            self._effective_policy = self.policy
+
+        # Initialize pipeline with the effective policy for this Guard.
+        # Heavy validator behavior can be further controlled via runtime
+        # flags (e.g. fast_mode) without mutating the original PolicyConfig.
+        self.pipeline = ValidationPipeline(self._effective_policy)
+
 
         # Store optional ArmorIQ adapter
         self.armoriq = armoriq

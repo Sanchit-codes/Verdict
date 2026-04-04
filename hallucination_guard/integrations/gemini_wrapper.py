@@ -78,6 +78,7 @@ class GuardedGemini:
         armoriq: Optional[Any] = None,
         user_task: Optional[str] = None,
         preprocessing: bool = False,
+        fast_mode: bool = False,
     ) -> None:
         """Initialize GuardedGemini.
 
@@ -93,6 +94,10 @@ class GuardedGemini:
                       to the prompt if neither is set. Defaults to None.
             preprocessing: Whether to enable the preprocessing layer in the
                           internal Guard instance. Defaults to False.
+            fast_mode: When True, prefer low-latency validation by disabling
+                       heavy Tier 2 (embedding) and Tier 3 (HHEM) validators
+                       in the internal Guard instance, even if enabled in the
+                       policy. Defaults to False.
 
         Raises:
             ImportError: If google-generativeai is not installed.
@@ -120,7 +125,8 @@ class GuardedGemini:
             self.guard = Guard(
                 policy=policy,
                 armoriq=armoriq,
-                preprocessing=preprocessing
+                preprocessing=preprocessing,
+                fast_mode=fast_mode,
             )
             self.policy = self.guard.policy
         except PolicyLoadError as e:

@@ -64,6 +64,10 @@ class ValidationPipeline:
     """
     
     def __init__(self, policy: PolicyConfig):
+        # NOTE: PolicyConfig is frozen, so any dynamic runtime toggles that
+        # affect which validators run should be applied by the caller before
+        # constructing ValidationPipeline (e.g. by passing a modified copy of
+        # the policy).
         """Initialize pipeline with a policy configuration.
         
         Loads and instantiates validators based on policy.validators list.
@@ -339,6 +343,12 @@ class ValidationPipeline:
 
 
 def create_pipeline(policy: str | PolicyConfig) -> ValidationPipeline:
+    """Backwards-compatible helper, kept for existing callers.
+
+    New code should prefer constructing ValidationPipeline directly or
+    extending it when advanced control (e.g. runtime validator toggles)
+    is required.
+    """
     """Create a ValidationPipeline with the specified policy.
     
     Convenience function to load a policy by name or use an existing PolicyConfig,
