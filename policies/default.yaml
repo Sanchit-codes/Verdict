@@ -1,6 +1,6 @@
 name: "default"
 description: "Balanced general-purpose policy with prompt security and all validation tiers enabled"
-latency_budget_ms: 150
+latency_budget_ms: 2000
 risk_threshold: 0.5
 enable_prompt_validators: true
 prompt_injection_threshold: 0.3
