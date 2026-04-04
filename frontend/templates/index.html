@@ -298,8 +298,27 @@
                     statsHtml += `<div class="meta-row"><span class="meta-label">ArmorIQ:</span> <span>${ae.allowed ? 'Aligned' : 'Blocked'}${ae.reason ? ' - ' + ae.reason : ''}</span></div>`;
                 }
 
+                if (metadata.ground_truth) {
+                    const gt = metadata.ground_truth;
+                    statsHtml += `<div class="meta-row" style="margin-top: 8px;"><span class="meta-label">Ground truth task:</span> <span>${gt.core_task || 'n/a'} [${gt.domain || 'general'}]</span></div>`;
+                    if (gt.entities && gt.entities.length) {
+                        statsHtml += `<div class="meta-row"><span class="meta-label">GT entities:</span> <span>${gt.entities.join(', ')}</span></div>`;
+                    }
+                }
+
                 if (metadata.evidence) {
                     statsHtml += `<div class="meta-row" style="margin-top: 8px; color: #f87171;"><span class="meta-label">Evidence:</span> <span>${metadata.evidence}</span></div>`;
+                }
+
+                if (metadata.thinking && (metadata.thinking.text || metadata.thinking.intent_check)) {
+                    const thinkingText = metadata.thinking.text || 'Thinking captured but not shown.';
+                    const intentCheck = metadata.thinking.intent_check;
+                    statsHtml += `
+                        <details style="margin-top: 8px;">
+                            <summary class="meta-label">Model thinking & ArmorIQ</summary>
+                            <div style="margin-top: 6px; font-family: monospace; white-space: pre-wrap;">${thinkingText}</div>
+                            ${intentCheck ? `<div class="meta-row" style="margin-top: 6px;"><span class="meta-label">Thinking intent:</span> <span>${intentCheck.status}${intentCheck.reason ? ' - ' + intentCheck.reason : ''}</span></div>` : ''}
+                        </details>`;
                 }
 
                 statsHtml += `</div>`;

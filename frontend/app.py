@@ -126,6 +126,9 @@ def chat():
             'suggested_fix': decision.suggested_fix,
             'latency_ms': decision.latency_ms,
             'preprocessing_metadata': decision.preprocessing_metadata or {},
+            # Surface model thinking and ground truth snapshots for the UI demo
+            'thinking': getattr(decision, 'thinking', None),
+            'ground_truth': getattr(decision, 'ground_truth', None),
         }
         
         if decision.action_enforcement:

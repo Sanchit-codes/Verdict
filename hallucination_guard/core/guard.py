@@ -39,7 +39,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from hallucination_guard.core.decision import ActionEnforcementResult, GuardDecision
 from hallucination_guard.core.exceptions import IntentViolationError, PolicyLoadError
@@ -50,6 +50,7 @@ from hallucination_guard.policy.schema import PolicyConfig
 from hallucination_guard.validators.base import ValidationInput
 from hallucination_guard.validators.embedding import preload_embedding
 from hallucination_guard.validators.hhem import preload_hhem
+from hallucination_guard.preprocessing.ground_truth import GroundTruthContext
 
 # Preprocessing imports (lazy — only loaded when preprocessing is enabled)
 try:
@@ -97,6 +98,8 @@ class Guard:
         ... )
         >>> print(decision.action_enforcement.allowed)  # True
     """
+    # Class-level in-memory storage for ground truth contexts (session-keyed)
+    _ground_truth_store: Dict[str, GroundTruthContext] = {}
 
     def __init__(
         self,
@@ -358,6 +361,54 @@ class Guard:
     # Full pipeline: Preprocess → Generate → ArmorIQ → Validate
     # ------------------------------------------------------------------
 
+    def _store_ground_truth(self, session_key: str, ground_truth: GroundTruthContext) -> None:
+        """Store ground truth context for a session."""
+        self.__class__._ground_truth_store[session_key] = ground_truth
+
+    def _get_ground_truth(self, session_key: str) -> Optional[GroundTruthContext]:
+        """Retrieve ground truth context for a session."""
+        return self.__class__._ground_truth_store.get(session_key)
+
+    def _get_session_task(self, session_key: str) -> Optional[str]:
+        """Get the task description from stored ground truth."""
+        gt = self._get_ground_truth(session_key)
+        return gt.task_description() if gt else None
+
+    def _check_thinking_for_intent(
+        self, thinking: str, task: str
+    ) -> Optional[str]:
+        """Check if LLM thinking reveals intent misalignment.
+        
+        Args:
+            thinking: The LLM's reasoning/thinking process.
+            task: The declared user task.
+            
+        Returns:
+            None if aligned, or error message if misaligned.
+        """
+        if not self.armoriq or not thinking:
+            return None
+        
+        try:
+            self.armoriq.enforce(task, thinking)
+            logger.debug(f"Thinking process aligned with task")
+            return None
+        except Exception as e:
+            error_msg = f"Intent violation in thinking process: {str(e)}"
+            logger.warning(error_msg)
+            return error_msg
+
+    def _extract_actions_from_response(self, response_text: str) -> List[str]:
+        """Extract potential actions from generated response text."""
+        # Simple heuristic: look for sentences with action verbs
+        action_verbs = ['book', 'search', 'buy', 'send', 'call', 'execute', 'run', 'create', 'update', 'delete']
+        actions = []
+        sentences = response_text.split('.')
+        for sentence in sentences:
+            if any(verb in sentence.lower() for verb in action_verbs):
+                actions.append(sentence.strip())
+        return actions
+
     def generate_and_validate(
         self,
         prompt: str,
@@ -427,7 +478,30 @@ class Guard:
                     "mode": analysis.analysis_metadata.get("mode", "unknown"),
                 }
 
-                # Store + compact context
+                # Extract and store ground truth context
+                ground_truth = self._analyzer.extract_ground_truth(analysis)  # type: ignore[attr-defined]
+                self._context_mgr.store_ground_truth(key, ground_truth)  # type: ignore[attr-defined]
+                gt_snapshot = {
+                    "original_prompt": ground_truth.original_prompt,
+                    "intent": ground_truth.intent.value,
+                    "core_task": ground_truth.core_task,
+                    "constraints": ground_truth.constraints,
+                    "entities": ground_truth.entities,
+                    "domain": ground_truth.domain,
+                    "sensitivity_tags": ground_truth.sensitivity_tags,
+                    "context_requirements": ground_truth.context_requirements,
+                    "created_at": ground_truth.created_at,
+                    "confidence": round(ground_truth.confidence, 2),
+                }
+                preprocessing_meta["ground_truth"] = {
+                    "core_task": gt_snapshot["core_task"],
+                    "domain": gt_snapshot["domain"],
+                    "confidence": gt_snapshot["confidence"],
+                    "entities": gt_snapshot["entities"][:5],  # Limit for metadata
+                    "sensitivity_tags": gt_snapshot["sensitivity_tags"],
+                }
+                # Attach full snapshot to decision later for UIs/clients
+                preprocessing_meta["_ground_truth_full"] = gt_snapshot
                 if context:
                     self._context_mgr.update(key, context)  # type: ignore[attr-defined]
                     entry = self._context_mgr.compact(  # type: ignore[attr-defined]
@@ -520,12 +594,18 @@ class Guard:
             raise
 
         # ── Stage 3: ArmorIQ Intent Check (post-gen, pre-validation) ──
-        # Checks whether Gemini's output is aligned with the user's original
-        # prompt intent — catches model deflection before validation runs.
+        # Checks whether Gemini's output is aligned with the stored ground truth
+        # task scope — catches model deflection before validation runs.
         enforcement_result: Optional[ActionEnforcementResult] = None
         if self.armoriq is not None:
             try:
-                self.armoriq.enforce(user_task=prompt, action_plan=output)
+                # Use ground truth task if available, otherwise fall back to prompt
+                ground_truth_task = None
+                if self.preprocessing_enabled:
+                    ground_truth_task = self._context_mgr.get_session_task(key)  # type: ignore[attr-defined]
+
+                task_scope = ground_truth_task or prompt
+                self.armoriq.enforce(user_task=task_scope, action_plan=output)
                 enforcement_result = ActionEnforcementResult(
                     enforced=True,
                     allowed=True,
@@ -571,6 +651,10 @@ class Guard:
         # ── Stage 5: Attach preprocessing metadata + enforcement ──────
         updates: dict = {}
         if preprocessing_meta:
+            # Promote full ground truth snapshot to top-level decision field for UIs
+            gt_full = preprocessing_meta.pop("_ground_truth_full", None)
+            if gt_full is not None:
+                updates["ground_truth"] = gt_full
             updates["preprocessing_metadata"] = preprocessing_meta
         if enforcement_result is not None:
             updates["action_enforcement"] = enforcement_result
