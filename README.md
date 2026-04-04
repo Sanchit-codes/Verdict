@@ -28,13 +28,36 @@ pip install -e ".[gemini,langchain,observability,dev]"
 pip install hallucination-guard
 ```
 
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure your environment:
+
+```bash
+cp .env.example .env
+# Edit .env with your actual values
+```
+
+**Required for integrations:**
+- `GOOGLE_API_KEY`: Google AI API key for Gemini integration
+- `LANGFUSE_PUBLIC_KEY` & `LANGFUSE_SECRET_KEY`: For trace export to Langfuse
+
+**Optional SDK settings:**
+- `HG_DEFAULT_POLICY`: Default policy (default, rag_strict, chatbot, no_prompt_check)
+- `HG_DISABLE_HHEM`: Set to `true` for fast mode (heuristics + embeddings only)
+- `HG_LOG_LEVEL`: Logging verbosity (WARNING, INFO, DEBUG)
+
+**Development:**
+- `FLASK_DEBUG`: Enable Flask debug mode for frontend development
+
+See `.env.example` for complete configuration options.
+
 ### Basic Usage
 
 ```python
 from hallucination_guard import Guard
 
 # Initialize guard with a policy
-guard = Guard(policy="rag_strict")
+guard = Guard(policy="safe")  # Use "safe" for fast/reliable, "development" for ML model testing
 
 # Validate output
 decision = guard.validate(
@@ -49,6 +72,30 @@ if decision.decision == "allow":
 elif decision.decision == "block":
     print(f"✗ Blocked (risk={decision.risk_score:.2f})")
 ```
+
+### Testing Frontend
+
+For development and testing, use the included web frontend:
+
+```bash
+# Install with frontend dependencies
+pip install -e ".[dev]"
+
+# Run the testing frontend
+cd frontend && python run.py
+
+# Or directly:
+python frontend/run.py
+```
+
+The frontend provides:
+- **Interactive prompt testing** with real-time validation
+- **Tier 0.5 visualization** showing prompt security analysis
+- **Policy comparison** across different configurations
+- **Example scenarios** for testing various attack vectors
+- **Detailed results** including risk scores, evidence, and latency
+
+Access at: `http://localhost:5000`
 
 ### With Gemini Integration
 
@@ -121,8 +168,25 @@ Learn more: [Structured Prompt Processing](docs/PROMPT_STRUCTURE.md)
 - **`default.yaml`**: Balanced general-purpose policy
 - **`rag_strict.yaml`**: High-risk domains (healthcare, finance)—lower threshold, regenerate on failure
 - **`chatbot.yaml`**: Low-latency chatbots—heuristics + embeddings only
+- **`safe.yaml`**: Fast and reliable—prompt security + heuristics only (<1ms latency)
+- **`development.yaml`**: Relaxed timeouts for testing with ML models
 
 Custom policies can be created via YAML configuration.
+
+### Development Policy
+
+For development and testing with relaxed timeouts (to accommodate first-time model loading):
+
+```bash
+guard = Guard(policy="development")
+```
+
+The `development.yaml` policy includes:
+- **30 second latency budget** (vs 150ms in production policies)
+- **Relaxed validator timeouts**: 10s for embedding, 15s for HHEM
+- **Same validation logic** but more tolerant of model loading delays
+
+**Note**: HHEM validator may still fail due to tokenizer compatibility issues with some environments. Use `HG_DISABLE_HHEM=true` for pure heuristics + embeddings validation.
 
 ## Development
 
@@ -148,6 +212,9 @@ pytest --cov=hallucination_guard --cov-report=html
 
 # Fast mode (skip model downloads)
 HG_DISABLE_HHEM=true pytest tests/test_heuristics.py
+
+# Development mode (relaxed timeouts for model testing)
+pytest tests/ -k "not slow"  # Use development policy in tests
 ```
 
 ### Code Quality

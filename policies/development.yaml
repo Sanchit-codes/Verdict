@@ -1,0 +1,46 @@
+name: "development"
+description: "Development policy with relaxed timeouts for testing and debugging"
+latency_budget_ms: 30000  # 30 seconds for development
+risk_threshold: 0.5
+enable_prompt_validators: true
+prompt_injection_threshold: 0.3
+
+validators:
+  # TIER 0.5: Prompt Security
+  - name: "prompt_structure"
+    enabled: true
+    weight: 0.0
+    threshold: 1.0
+    timeout_ms: 5000  # 5 seconds for model loading
+  
+  - name: "prompt_injection"
+    enabled: true
+    weight: 0.1
+    threshold: 0.7
+    timeout_ms: 1000  # 1 second
+  
+  # TIER 1: Heuristics
+  - name: "heuristics"
+    enabled: true
+    weight: 0.2
+    threshold: 0.5
+    timeout_ms: 100   # 100ms
+  
+  # TIER 2: Embedding Similarity
+  - name: "embedding"
+    enabled: true
+    weight: 0.3
+    threshold: 0.7
+    timeout_ms: 10000  # 10 seconds for first model load
+  
+  # TIER 3: HHEM Classifier
+  - name: "hhem"
+    enabled: true
+    weight: 0.5
+    threshold: 0.7
+    timeout_ms: 15000  # 15 seconds for first model load
+
+mitigation:
+  on_block: "block"
+  on_timeout: "allow"
+  on_error: "abstain"

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HallucinationGuard SDK - Testing Frontend</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-shield-alt"></i> HallucinationGuard SDK</h1>
+            <p class="subtitle">Testing Frontend - Tier 0.5 Prompt Security Validation</p>
+        </header>
+
+        <div class="main-content">
+            <div class="form-section">
+                <div class="form-header">
+                    <h2><i class="fas fa-edit"></i> Validation Input</h2>
+                    <button id="load-example-btn" class="btn btn-secondary">
+                        <i class="fas fa-lightbulb"></i> Load Example
+                    </button>
+                </div>
+
+                <form id="validation-form">
+                    <div class="form-group">
+                        <label for="policy">Policy:</label>
+                        <select id="policy" name="policy">
+                            {% for policy in policies %}
+                            <option value="{{ policy }}" {% if policy == 'default' %}selected{% endif %}>
+                                {{ policy|title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small>Choose validation policy (affects thresholds and weights)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="domain">Domain:</label>
+                        <input type="text" id="domain" name="domain" value="general" placeholder="e.g., medical, financial, general">
+                        <small>Optional domain for context-aware validation</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prompt">Prompt: <span class="required">*</span></label>
+                        <textarea id="prompt" name="prompt" rows="3" placeholder="Enter the user prompt to validate..." required></textarea>
+                        <small>The input prompt to analyze for security and structure</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="output">Output:</label>
+                        <textarea id="output" name="output" rows="3" placeholder="Enter the AI/model output to validate..."></textarea>
+                        <small>Optional AI-generated output to validate against prompt</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="context">Context:</label>
+                        <textarea id="context" name="context" rows="2" placeholder="Enter reference context..."></textarea>
+                        <small>Optional reference context for faithfulness validation</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="validate-btn">
+                        <i class="fas fa-search"></i> Validate
+                    </button>
+                </form>
+            </div>
+
+            <div class="results-section" id="results-section" style="display: none;">
+                <div class="results-header">
+                    <h2><i class="fas fa-chart-line"></i> Validation Results</h2>
+                    <div id="overall-status" class="status-indicator"></div>
+                </div>
+
+                <div id="results-content">
+                    <!-- Results will be inserted here by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <div class="info-card">
+                <h3><i class="fas fa-info-circle"></i> About Tier 0.5</h3>
+                <p>The new <strong>Tier 0.5 (Prompt Security)</strong> layer analyzes prompts before they reach the LLM:</p>
+                <ul>
+                    <li><strong>PromptStructureValidator:</strong> Analyzes intent, PII, sensitivity, entities</li>
+                    <li><strong>PromptInjectionValidator:</strong> Detects jailbreaks, SQL/XSS, role-play attacks</li>
+                    <li><strong>Early Exit:</strong> Blocks clearly malicious prompts before expensive validation</li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3><i class="fas fa-list"></i> Decision Types</h3>
+                <ul>
+                    <li><span class="decision-allow">ALLOW</span>: Safe content</li>
+                    <li><span class="decision-block">BLOCK</span>: Dangerous content blocked</li>
+                    <li><span class="decision-regenerate">REGENERATE</span>: Content needs improvement</li>
+                    <li><span class="decision-abstain">ABSTAIN</span>: Unable to determine</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Example selector modal -->
+    <div id="example-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-lightbulb"></i> Load Example</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div id="examples-list">
+                <!-- Examples will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -180,6 +180,6 @@ if __name__ == '__main__':
     # Default to development mode but disable reloader to preserve model cache
     debug = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
     use_reloader = os.environ.get('FLASK_RELOADER', 'False').lower() == 'true'  # Default False to preserve cache
-    port = int(os.environ.get('PORT', 5500))
+    port = int(os.environ.get('PORT', 5550))
 
     app.run(debug=debug, port=port, host='0.0.0.0', use_reloader=use_reloader)

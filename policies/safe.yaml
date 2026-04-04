@@ -1,0 +1,46 @@
+name: "safe"
+description: "Safe policy with only prompt security and heuristics enabled - no ML models"
+latency_budget_ms: 100  # Very fast, no model loading
+risk_threshold: 0.5
+enable_prompt_validators: true
+prompt_injection_threshold: 0.3
+
+validators:
+  # TIER 0.5: Prompt Security (always fast)
+  - name: "prompt_structure"
+    enabled: true
+    weight: 0.0
+    threshold: 1.0
+    timeout_ms: 20
+  
+  - name: "prompt_injection"
+    enabled: true
+    weight: 0.2
+    threshold: 0.7
+    timeout_ms: 10
+  
+  # TIER 1: Heuristics (fast, deterministic)
+  - name: "heuristics"
+    enabled: true
+    weight: 0.8
+    threshold: 0.5
+    timeout_ms: 5
+  
+  # TIER 2: Embedding Similarity (DISABLED - too slow)
+  - name: "embedding"
+    enabled: false  # Disabled by default for safety
+    weight: 0.0
+    threshold: 0.7
+    timeout_ms: 30
+  
+  # TIER 3: HHEM Classifier (DISABLED - compatibility issues)
+  - name: "hhem"
+    enabled: false  # Disabled by default for safety
+    weight: 0.0
+    threshold: 0.7
+    timeout_ms: 80
+
+mitigation:
+  on_block: "block"
+  on_timeout: "allow"
+  on_error: "abstain"

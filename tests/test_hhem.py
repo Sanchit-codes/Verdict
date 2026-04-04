@@ -12,17 +12,15 @@ def test_hhem_singleton_shared_between_validators(monkeypatch):
     from hallucination_guard.validators import hhem as hhem_module
 
     hhem_module._HHEM_MODEL = None
-    hhem_module._HHEM_TOKENIZER = None
 
     v1 = HHEMValidator({"threshold": 0.5, "timeout_ms": 80})
     v2 = HHEMValidator({"threshold": 0.5, "timeout_ms": 80})
 
-    tok1, model1, err1 = _get_hhem_model()
-    tok2, model2, err2 = _get_hhem_model()
+    model1, err1 = _get_hhem_model()
+    model2, err2 = _get_hhem_model()
 
     assert err1 is None
     assert err2 is None
-    assert tok1 is tok2
     assert model1 is model2
 
 

@@ -55,6 +55,8 @@ dev = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "locust>=2.15.0",
+    "flask>=2.0.0",
+    "python-dotenv>=1.0.0",
 ]
 all = [
     "hallucination-guard[gemini,langchain,observability,dev]",
@@ -180,3 +182,4 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
