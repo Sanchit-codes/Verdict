@@ -76,6 +76,7 @@ class GuardedGemini:
         max_retries: int = 2,
         armoriq: Optional[Any] = None,
         user_task: Optional[str] = None,
+        preprocessing: bool = False,
     ) -> None:
         """Initialize GuardedGemini.
 
@@ -89,6 +90,8 @@ class GuardedGemini:
                     Defaults to None (no enforcement).
             user_task: Default task scope for ArmorIQ. Overridable per-call. Falls back
                       to the prompt if neither is set. Defaults to None.
+            preprocessing: Whether to enable the preprocessing layer in the
+                          internal Guard instance. Defaults to False.
 
         Raises:
             ImportError: If google-generativeai is not installed.
@@ -105,7 +108,7 @@ class GuardedGemini:
             self.model = model
         else:
             try:
-                self.model = genai.GenerativeModel("gemini-2.0-flash")
+                self.model = genai.GenerativeModel("gemini-2.5-flash")
             except Exception as e:
                 raise ValueError(
                     "Could not auto-initialize Gemini model. "
@@ -113,7 +116,11 @@ class GuardedGemini:
                 ) from e
 
         try:
-            self.guard = Guard(policy=policy)
+            self.guard = Guard(
+                policy=policy,
+                armoriq=armoriq,
+                preprocessing=preprocessing
+            )
             self.policy = self.guard.policy
         except PolicyLoadError as e:
             raise PolicyLoadError(policy_name=e.policy_name, reason=e.reason) from e
@@ -250,6 +257,55 @@ class GuardedGemini:
 
         logger.error("Unexpected state: exited retry loop without returning or raising")
         raise RuntimeError("GuardedGemini internal error: retry loop exhausted")
+
+    def generate_guarded(
+        self,
+        prompt: str,
+        context: Optional[str] = None,
+        domain: Optional[str] = None,
+        session_key: Optional[str] = None,
+        model_name: str = "gemini-2.5-flash",
+    ) -> GuardDecision:
+        """New high-level generation method using the unified Guard pipeline.
+
+        Unlike the original ``generate()`` method, this uses the single-call
+        ``Guard.generate_and_validate()`` pipeline which incorporates:
+        Preprocessing → Gen → ArmorIQ → Validation into one atomic step.
+
+        Args:
+            prompt: User prompt.
+            context: Reference context (stored/compacted if preprocessing enabled).
+            domain: Domain tag.
+            session_key: Context manager key.
+            model_name: Gemini model name.
+
+        Returns:
+            ``GuardDecision`` with all metadata (including preprocessing).
+        """
+        return self.guard.generate_and_validate(
+            prompt=prompt,
+            context=context,
+            domain=domain,
+            session_key=session_key,
+            model_name=model_name,
+        )
+
+    async def generate_guarded_async(
+        self,
+        prompt: str,
+        context: Optional[str] = None,
+        domain: Optional[str] = None,
+        session_key: Optional[str] = None,
+        model_name: str = "gemini-2.5-flash",
+    ) -> GuardDecision:
+        """Async version of ``generate_guarded()``."""
+        return await self.guard.generate_and_validate_async(
+            prompt=prompt,
+            context=context,
+            domain=domain,
+            session_key=session_key,
+            model_name=model_name,
+        )
 
     async def generate_async(
         self,

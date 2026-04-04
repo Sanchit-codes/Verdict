@@ -199,6 +199,22 @@ def test_run_executes_all_validators(simple_policy, sample_input):
     validator_names = [r.validator_name for r in decision.validator_results]
     assert "heuristics" in validator_names
 
+def test_pipeline_thinking_callback(simple_policy, sample_input):
+    """Test that thinking_callback is called during pipeline run."""
+    events = []
+    def cb(msg: str):
+        events.append(msg)
+        
+    pipeline = ValidationPipeline(simple_policy, thinking_callback=cb)
+    decision = pipeline.run(sample_input)
+    
+    assert len(events) > 0
+    assert any("Running " in event for event in events)
+    assert any("Final Decision:" in event for event in events)
+    # Check for early-exit or full run depending on heuristics (which usually returns something causing continue or exit depending on mock)
+    # Since we didn't mock heuristics, we just assert some events were fired.
+
+
 
 def test_run_handles_none_context(simple_policy):
     """Test that pipeline handles None context gracefully."""
@@ -379,8 +395,9 @@ def test_latency_budget_timeout_remaining_validators(simple_policy, sample_input
     
     pipeline = ValidationPipeline(tight_policy)
     
-    # Mock heuristics to take a long time
-    with patch.object(
+    # Mock heuristics to take a long time, and mock time.perf_counter to simulate passing time
+    with patch("time.perf_counter", side_effect=[0.0, 0.0, 0.010, 0.015, 0.015, 0.015]), \
+         patch.object(
         pipeline.validators["heuristics"],
         "validate",
         return_value=ValidationResult(

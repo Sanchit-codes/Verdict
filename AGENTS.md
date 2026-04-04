@@ -309,7 +309,7 @@ from hallucination_guard.integrations import GuardedGemini
 import google.generativeai as genai
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-base_model = genai.GenerativeModel("gemini-2.0-flash")
+base_model = genai.GenerativeModel("gemini-2.5-flash")
 
 # Wrap with guard
 guarded = GuardedGemini(

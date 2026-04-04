@@ -6,7 +6,7 @@ and complete policy definitions.
 """
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ValidatorConfig(BaseModel):
@@ -18,8 +18,7 @@ class ValidatorConfig(BaseModel):
     threshold: float = Field(..., ge=0.0, le=1.0, description="Minimum score to pass (0.0-1.0)")
     timeout_ms: int = Field(..., gt=0, description="Maximum execution time in milliseconds")
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 class MitigationConfig(BaseModel):
@@ -38,8 +37,7 @@ class MitigationConfig(BaseModel):
         description="Action when validators crash or error",
     )
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 class ArmorIQConfig(BaseModel):
@@ -77,8 +75,7 @@ class ArmorIQConfig(BaseModel):
         description="Action taken when an intent violation is detected",
     )
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 class PolicyConfig(BaseModel):
@@ -110,5 +107,4 @@ class PolicyConfig(BaseModel):
         description="ArmorIQ intent enforcement configuration (optional, off by default)",
     )
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)
