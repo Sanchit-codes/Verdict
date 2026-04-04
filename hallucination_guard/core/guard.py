@@ -43,7 +43,7 @@ from typing import Any, Optional, Union
 
 from hallucination_guard.core.decision import ActionEnforcementResult, GuardDecision
 from hallucination_guard.core.exceptions import IntentViolationError, PolicyLoadError
-from hallucination_guard.core.pipeline import ValidationPipeline
+from hallucination_guard.core.pipeline import ValidationPipeline, ThinkingCallback
 from hallucination_guard.core.trace import GuardTrace, export_trace
 from hallucination_guard.policy.loader import load_policy as _load_policy
 from hallucination_guard.policy.schema import PolicyConfig
@@ -106,6 +106,7 @@ class Guard:
         armoriq: Optional[Any] = None,
         preload_models: bool = False,
         preprocessing: bool = False,
+        thinking_callback: Optional[ThinkingCallback] = None,
     ) -> None:
         """Initialize Guard with a policy configuration.
 
@@ -128,6 +129,10 @@ class Guard:
                           ``generate_and_validate()``. Initialises PromptAnalyzer,
                           ContextManager, and PromptCompactor. Has no effect on the
                           existing ``validate()`` method. Defaults to False.
+            thinking_callback: Optional callable(message: str) invoked for every
+                          step of the pipeline (validator start, result, early-exit,
+                          final decision). The same messages are also emitted via
+                          ``logger.info``.  Defaults to None (no extra calls).
 
         Raises:
             PolicyLoadError: If policy cannot be loaded or validated.
@@ -159,8 +164,11 @@ class Guard:
         # Store prompt validator setting
         self.enable_prompt_validators = enable_prompt_validators
 
+        # Store thinking callback
+        self._thinking_cb: Optional[ThinkingCallback] = thinking_callback
+
         # Initialize pipeline with loaded policy
-        self.pipeline = ValidationPipeline(self.policy)
+        self.pipeline = ValidationPipeline(self.policy, thinking_callback=thinking_callback)
 
         # Store optional ArmorIQ adapter
         self.armoriq = armoriq
@@ -213,6 +221,18 @@ class Guard:
             f"enable_prompt_validators={self.enable_prompt_validators}, "
             f"armoriq={armor_mode})"
         )
+
+    # ------------------------------------------------------------------
+    # Internal helper
+    # ------------------------------------------------------------------
+    def _emit(self, message: str) -> None:
+        """Emit a thinking-log message to logger and the optional callback."""
+        logger.info(message)
+        if self._thinking_cb is not None:
+            try:
+                self._thinking_cb(message)
+            except Exception:
+                pass  # Never let a bad callback crash the pipeline
 
     def validate(
         self,
@@ -390,6 +410,7 @@ class Guard:
         # ── Stage 1: Preprocessing ────────────────────────────────────
         if self.preprocessing_enabled:
             try:
+                self._emit("🔧 Stage 1/4: Preprocessing prompt...")
                 # Analyse & optionally refine the prompt
                 analysis = self._analyzer.analyze(prompt)  # type: ignore[attr-defined]
                 effective_prompt = analysis.refined_prompt
@@ -400,6 +421,10 @@ class Guard:
                     "latency_ms": round(analysis.latency_ms, 2),
                     "mode": analysis.analysis_metadata.get("mode", "unknown"),
                 }
+                self._emit(
+                    f"   ✅ Prompt analyzed: intent={analysis.intent.value}, "
+                    f"refined={analysis.was_refined} ({analysis.latency_ms:.0f}ms)"
+                )
 
                 # Store + compact context
                 if context:
@@ -416,12 +441,19 @@ class Guard:
                             "compacted_tokens": entry.token_count,
                             "compacted": entry.compacted,
                         }
+                        self._emit(
+                            f"   📦 Context compacted: {_estimate_context_tokens(context)} "
+                            f"→ {entry.token_count} tokens"
+                        )
             except Exception as e:
                 logger.warning(
                     f"Guard: preprocessing failed ({e}), continuing with original prompt/context"
                 )
+                self._emit(f"   ⚠️ Preprocessing failed ({e}), using original prompt")
                 effective_prompt = prompt
                 effective_context = context
+        else:
+            self._emit("⏭️  Stage 1/4: Preprocessing disabled, skipping")
         # ── Stage 2: Gemini Generation ────────────────────────────────
         try:
             import google.generativeai as genai
@@ -436,6 +468,8 @@ class Guard:
                     f"Context:\n{effective_context}\n\nQuestion/Task:\n{effective_prompt}"
                 )
             
+            self._emit(f"🤖 Stage 2/4: Generating response via {model_name} ...")
+
             model_response = None
             max_retries = 2
             
@@ -446,7 +480,7 @@ class Guard:
                 except Exception as e:
                     if ("429" in str(e) or "Quota" in str(e)) and attempt < max_retries:
                         err_str = str(e)
-                        match = re.search(r'retry in ([\d\.]+)s', err_str)
+                        match = re.search(r'retry in ([\.\d]+)s', err_str)
                         if match:
                             delay = min(float(match.group(1)) + 1.0, 30.0)
                         else:
@@ -455,6 +489,10 @@ class Guard:
                                 delay = min(float(match_seconds.group(1)) + 1.0, 30.0)
                             else:
                                 delay = 5.0
+                        self._emit(
+                            f"   ⚠️ Rate limited (429). Retrying in {delay:.1f}s "
+                            f"(attempt {attempt + 1}/{max_retries})..."
+                        )
                         logger.warning(f"Guard: Rate limited (429) during generation. Retrying in {delay:.1f}s (Attempt {attempt+1}/{max_retries})...")
                         time.sleep(delay)
                     else:
@@ -466,7 +504,10 @@ class Guard:
             
             if not output:
                 logger.warning("Guard: Gemini returned empty output, using empty string")
-            
+                self._emit("   ⚠️ Gemini returned an empty response")
+            else:
+                self._emit(f"   ✅ Response generated ({len(output)} chars)")
+
             preprocessing_meta["generation"] = {
                 "model": model_name, 
                 "prompt_used": "refined" if effective_prompt != prompt else "original"
@@ -478,6 +519,7 @@ class Guard:
             )
         except Exception as e:
             logger.error(f"Guard: Gemini generation failed: {e}")
+            self._emit(f"   ❌ Gemini generation failed: {e}")
             if "429" in str(e) or "Quota" in str(e):
                 return GuardDecision(
                     decision="abstain",
@@ -498,6 +540,7 @@ class Guard:
         # prompt intent — catches model deflection before validation runs.
         enforcement_result: Optional[ActionEnforcementResult] = None
         if self.armoriq is not None:
+            self._emit("🛡️  Stage 3/4: ArmorIQ intent alignment check ...")
             try:
                 self.armoriq.enforce(user_task=prompt, action_plan=output)
                 enforcement_result = ActionEnforcementResult(
@@ -507,6 +550,7 @@ class Guard:
                     action_plan=output[:200],  # truncate for storage
                     reason=None,
                 )
+                self._emit("   ✅ ArmorIQ: output is aligned with user intent")
                 logger.debug("Guard[generate]: ArmorIQ: output aligned with user intent")
             except IntentViolationError as e:
                 enforcement_result = ActionEnforcementResult(
@@ -516,6 +560,7 @@ class Guard:
                     action_plan=output[:200],
                     reason=e.reason,
                 )
+                self._emit(f"   🚨 ArmorIQ: model deflected — {e.reason} — BLOCKING")
                 logger.warning(
                     f"Guard[generate]: ArmorIQ blocked — model deflected: {e.reason}"
                 )
@@ -533,8 +578,11 @@ class Guard:
                     action_enforcement=enforcement_result,
                     preprocessing_metadata=preprocessing_meta or None,
                 )
+        else:
+            self._emit("⏭️  Stage 3/4: ArmorIQ not configured, skipping")
 
         # ── Stage 4: Validation ───────────────────────────────────────
+        self._emit("🧪 Stage 4/4: Running validation pipeline ...")
         decision = self.validate(
             prompt=prompt,
             output=output,

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, request, jsonify
 import traceback
 import logging
+from typing import Any
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -39,7 +40,7 @@ try:
     # Warm up the heavy ML models in the background at server boot.
     # This means the first /chat request won't pay the 6-8s cold-start penalty.
     import threading
-    def _warm_models():
+    def _warm_models() -> None:
         import logging as _log
         _log.getLogger('hallucination_guard').info(
             "[Warmup] Starting background model preload..."
@@ -56,15 +57,47 @@ try:
 except ImportError as e:
     print(f"Warning: HallucinationGuard SDK not available: {e}")
     SDK_AVAILABLE = False
-    Guard = None
+    Guard = None  # type: ignore
 
 # Global preload guard (initialized later)
 preload_guard = None
 
+# ---------------------------------------------------------------------------
+# SSE: thread-safe thinking log queue (one per active request)
+# ---------------------------------------------------------------------------
+import queue
+import uuid
+import threading as _threading
+
+# Map of stream_id -> Queue
+_stream_queues: dict = {}
+_stream_queues_lock = _threading.Lock()
+
+_STREAM_SENTINEL = "__DONE__"
+
+
+def _get_stream_queue(stream_id: str) -> "queue.Queue | None":
+    with _stream_queues_lock:
+        return _stream_queues.get(stream_id)
+
+
+def _create_stream_queue(stream_id: str) -> "queue.Queue":
+    q: queue.Queue = queue.Queue()
+    with _stream_queues_lock:
+        _stream_queues[stream_id] = q
+    return q
+
+
+def _remove_stream_queue(stream_id: str) -> None:
+    with _stream_queues_lock:
+        _stream_queues.pop(stream_id, None)
+
+# ---------------------------------------------------------------------------
+
 app = Flask(__name__)
 
 @app.route('/')
-def index():
+def index() -> Any:
     """Render the main testing interface"""
     if not SDK_AVAILABLE:
         return render_template('error.html', 
@@ -82,12 +115,66 @@ def index():
                          intent_options=intent_options,
                          sensitivity_options=sensitivity_options)
 
+
+@app.route('/stream')
+def stream() -> Any:
+    """Server-Sent Events endpoint — streams thinking logs for a given stream_id."""
+    from flask import Response, stream_with_context
+    import time as _time
+
+    stream_id = request.args.get('stream_id', '')
+    if not stream_id:
+        return Response("data: error: missing stream_id\n\n", mimetype='text/event-stream')
+
+    from typing import Generator
+    def generate() -> Generator[str, None, None]:
+        q = None
+        # Poll until the queue is registered (chat route creates it just before running)
+        for _ in range(100):  # up to 5 seconds wait
+            q = _get_stream_queue(stream_id)
+            if q is not None:
+                break
+            _time.sleep(0.05)
+
+        if q is None:
+            yield "data: error: stream not found\n\n"
+            return
+
+        try:
+            while True:
+                try:
+                    msg = q.get(timeout=30)
+                except queue.Empty:
+                    # Keep-alive comment to prevent proxy timeouts
+                    yield ": keepalive\n\n"
+                    continue
+
+                if msg == _STREAM_SENTINEL:
+                    yield "data: __done__\n\n"
+                    break
+                # Escape newlines so SSE stays single-event-per-message
+                escaped = msg.replace('\n', ' ')
+                yield f"data: {escaped}\n\n"
+        finally:
+            _remove_stream_queue(stream_id)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+
+
 @app.route('/chat', methods=['POST'])
-def chat():
+def chat() -> Any:
     """Run generation and validation in unified pipeline"""
     if not SDK_AVAILABLE:
         return jsonify({'error': 'HallucinationGuard SDK not available'}), 500
     
+    stream_id = ''
     try:
         data = request.get_json()
         
@@ -97,17 +184,32 @@ def chat():
         domain = data.get('domain', 'general')
         session_id = data.get('session_id', 'demo_session')
         use_refinement = data.get('use_refinement', True)
+        stream_id = data.get('stream_id', '')  # passed by frontend for SSE correlation
         
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
-            
+
+        # Register the queue BEFORE creating the Guard so /stream can pick it up
+        if stream_id:
+            _create_stream_queue(stream_id)
+
+        # Build thinking callback — pushes messages to the SSE queue if active
+        def thinking_callback(msg: str) -> None:
+            if stream_id:
+                q = _get_stream_queue(stream_id)
+                if q is not None:
+                    q.put(msg)
+
         # We need ArmorIQ setup for a full demo
         from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
         armor = ArmorIQAdapter(client=RuleBasedArmorIQClient())
         
-        # If use_refinement is False, we can still use preprocessing to allow Context Compaction
-        # but in our current guard API preprocessing is boolean. We'll set it False to save quota if requested.
-        guard = Guard(policy=policy, preprocessing=use_refinement, armoriq=armor)
+        guard = Guard(
+            policy=policy,
+            preprocessing=use_refinement,
+            armoriq=armor,
+            thinking_callback=thinking_callback,
+        )
         
         # Run unified pipeline
         decision = guard.generate_and_validate(
@@ -116,6 +218,12 @@ def chat():
             domain=domain,
             session_key=session_id
         )
+        
+        # Signal SSE stream that we're done
+        if stream_id:
+            q = _get_stream_queue(stream_id)
+            if q is not None:
+                q.put(_STREAM_SENTINEL)
         
         # Convert decision to dict for JSON response
         result = {
@@ -137,25 +245,31 @@ def chat():
             
         # Add tier results if available
         if hasattr(decision, 'validator_results'):
-            result['tier_results'] = []
+            tier_results = []
             for tier_result in decision.validator_results:
-                result['tier_results'].append({
+                tier_results.append({
                     'validator_name': tier_result.validator_name,
                     'score': round(tier_result.score, 3),
                     'passed': tier_result.passed,
                     'evidence': tier_result.evidence,
                     'latency_ms': tier_result.latency_ms
                 })
+            result['tier_results'] = tier_results
         
         return jsonify(result)
         
     except Exception as e:
+        # Make sure to close the SSE stream on error too
+        if stream_id:
+            q = _get_stream_queue(stream_id)
+            if q is not None:
+                q.put(_STREAM_SENTINEL)
         print(f"Chat error: {e}")
         traceback.print_exc()
         return jsonify({'error': f'Failed: {str(e)}'}), 500
 
 @app.route('/examples')
-def examples():
+def examples() -> Any:
     """Show example prompts for testing"""
     examples_data = [
         {
