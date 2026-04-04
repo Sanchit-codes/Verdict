@@ -5,15 +5,39 @@ This module implements the decision engine that:
 2. Calculates confidence based on validator agreement
 3. Maps aggregated scores to allow/block/regenerate/abstain decisions
 4. Generates evidence strings and suggested fixes for failed validators
+5. Records optional ArmorIQ action enforcement results in the decision
 """
 
 from typing import Literal, Optional
-from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
 from hallucination_guard.validators.base import ValidationResult
 from hallucination_guard.policy.schema import PolicyConfig
+
+
+class ActionEnforcementResult(BaseModel):
+    """Immutable result from an ArmorIQ action enforcement check.
+
+    Attached to GuardDecision when ArmorIQ enforcement is configured and
+    an action_plan is provided. Enables callers to inspect intent alignment
+    results alongside text validation results.
+
+    Attributes:
+        enforced: Whether enforcement actually ran (False if ArmorIQ was skipped).
+        allowed:  Whether the action was permitted (True = safe to execute).
+        user_task:   The declared task scope that was checked against.
+        action_plan: The action that was evaluated.
+        reason:   Why an action was blocked (None if allowed).
+    """
+
+    enforced: bool = Field(description="Whether ArmorIQ enforcement actually ran")
+    allowed: bool = Field(description="Whether the action was permitted")
+    user_task: Optional[str] = Field(default=None, description="Declared task scope")
+    action_plan: Optional[str] = Field(default=None, description="The action that was evaluated")
+    reason: Optional[str] = Field(default=None, description="Violation reason if blocked")
+
+    model_config = {"frozen": True}
 
 
 class GuardDecision(BaseModel):
@@ -46,13 +70,21 @@ class GuardDecision(BaseModel):
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Pre-computed prompt injection risk from security analysis in [0.0, 1.0]"
+        description="Pre-computed prompt injection risk from security analysis in [0.0, 1.0]",
     )
     prompt_security_metadata: dict[str, str | int | float | bool] = Field(
         default_factory=dict,
-        description="Additional prompt security analysis metadata (patterns, intent, sensitivity)"
+        description="Additional prompt security analysis metadata (patterns, intent, sensitivity)",
     )
-    
+    # ArmorIQ action enforcement result (None when ArmorIQ is not used)
+    action_enforcement: Optional[ActionEnforcementResult] = Field(
+        default=None,
+        description=(
+            "ArmorIQ intent enforcement result. None when no action_plan was provided "
+            "or ArmorIQ is not configured."
+        ),
+    )
+
     model_config = {"frozen": True}
 
 

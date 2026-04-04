@@ -44,3 +44,9 @@ mitigation:
   on_block: "regenerate"
   on_timeout: "block"
   on_error: "block"
+
+# ArmorIQ intent enforcement — enabled in strict mode for high-risk domains
+armoriq:
+  enabled: true
+  mode: "enforce"     # Active enforcement: block misaligned actions
+  on_violation: "block"

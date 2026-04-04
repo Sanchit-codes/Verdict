@@ -1,52 +1,44 @@
-"""GuardedGemini - Wrapper for Google Generative AI (Gemini) with HallucinationGuard validation.
+"""GuardedGemini — Gemini wrapper with automatic hallucination validation and ArmorIQ enforcement.
 
-This module provides the GuardedGemini class, which wraps google.generativeai.GenerativeModel
-with automatic hallucination validation and regeneration logic. It is the primary integration
-for the HallucinationGuard SDK hackathon demo.
+Wraps google.generativeai.GenerativeModel with:
+  1. HallucinationGuard text validation (3-tier cascade)
+  2. Optional ArmorIQ intent enforcement on tool/function calls
 
-Typical usage:
-    >>> from hallucination_guard.integrations import GuardedGemini
-    >>> import google.generativeai as genai
-    >>>
-    >>> genai.configure(api_key="...")
-    >>> base_model = genai.GenerativeModel("gemini-2.0-flash")
-    >>>
+Usage (text validation only):
+    >>> guarded = GuardedGemini(model=base_model, policy="rag_strict")
+    >>> response = guarded.generate(prompt="What is AI?", context="AI stands for...")
+    >>> print(response)
+
+Usage (with ArmorIQ automatic enforcement):
+    >>> from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
     >>> guarded = GuardedGemini(
     ...     model=base_model,
     ...     policy="rag_strict",
-    ...     max_retries=2
+    ...     armoriq=ArmorIQAdapter(client=RuleBasedArmorIQClient()),
+    ...     user_task="search for flights",
     ... )
-    >>>
-    >>> response = guarded.generate(
-    ...     prompt="What is AI?",
-    ...     context="AI is artificial intelligence..."
-    ... )
-    >>> print(response.text)  # Only returned if validation passes
-
-Design principles:
-- Zero mandatory API calls—validation happens locally with cached models
-- Graceful degradation—if Gemini API fails, raise appropriately; validation failures
-  are handled per policy (allow/block/regenerate/abstain)
-- Auto-regeneration—when decision is "regenerate", automatically retry with a hint
-  for up to max_retries attempts
-- Immutable results—GuardedGemini always returns or raises, never mutates input
+    >>> # Tool calls in Gemini responses are automatically enforced against user_task
+    >>> response = guarded.generate(prompt="Find me a flight to Paris.")
 """
 
 import asyncio
 import logging
-from typing import Optional, Union
 from pathlib import Path
+from typing import Any, Optional, Union
 
 try:
     import google.generativeai as genai
-    from google.generativeai.types import GenerateContentResponse
+    from google.generativeai.types import GenerateContentResponse  # noqa: F401
 except ImportError:
     genai = None
     GenerateContentResponse = None
 
 from hallucination_guard.core.guard import Guard
-from hallucination_guard.core.decision import GuardDecision
-from hallucination_guard.core.exceptions import HallucinationBlockedError, PolicyLoadError
+from hallucination_guard.core.exceptions import (
+    HallucinationBlockedError,
+    IntentViolationError,
+    PolicyLoadError,
+)
 from hallucination_guard.policy.schema import PolicyConfig
 
 logger = logging.getLogger(__name__)
@@ -55,27 +47,26 @@ logger = logging.getLogger(__name__)
 class GuardedGemini:
     """Wrapper for google.generativeai.GenerativeModel with HallucinationGuard validation.
 
-    GuardedGemini automatically validates Gemini model outputs using HallucinationGuard
-    and implements regeneration logic with configurable retry limits. It is designed
-    for RAG applications and other scenarios where hallucination prevention is critical.
-
     Attributes:
-        model: The underlying google.generativeai.GenerativeModel instance
-        guard: The initialized Guard instance for validation
-        policy: The loaded PolicyConfig governing validation behavior
-        max_retries: Maximum number of regeneration attempts on "regenerate" decision
+        model: The underlying google.generativeai.GenerativeModel instance.
+        guard: The initialized Guard instance for validation.
+        policy: The loaded PolicyConfig governing validation behavior.
+        max_retries: Maximum number of regeneration attempts on "regenerate" decision.
+        armoriq: Optional ArmorIQAdapter for automatic action enforcement.
+        user_task: Default task scope for ArmorIQ checks (can be overridden per-call).
 
     Example:
+        >>> from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
         >>> guarded = GuardedGemini(
         ...     model=base_model,
         ...     policy="rag_strict",
-        ...     max_retries=2
+        ...     max_retries=2,
+        ...     armoriq=ArmorIQAdapter(client=RuleBasedArmorIQClient()),
+        ...     user_task="search for flights to Paris",
         ... )
-        >>> response = guarded.generate(
-        ...     prompt="Summarize this paper.",
-        ...     context=paper_text
-        ... )
-        >>> print(response.text)
+        >>> response = guarded.generate(prompt="Find me a flight to Paris.",
+        ...                             context="Available flights are in the database.")
+        >>> print(response)
     """
 
     def __init__(
@@ -83,37 +74,33 @@ class GuardedGemini:
         model: Optional[object] = None,
         policy: Union[str, Path, PolicyConfig] = "default",
         max_retries: int = 2,
+        armoriq: Optional[Any] = None,
+        user_task: Optional[str] = None,
     ) -> None:
-        """Initialize GuardedGemini with a base model and validation policy.
+        """Initialize GuardedGemini.
 
         Args:
-            model: google.generativeai.GenerativeModel instance. If not provided,
-                   will attempt to create one using genai.GenerativeModel("gemini-2.0-flash").
-            policy: Validation policy (name, path, or PolicyConfig object).
-                   Defaults to "default".
-            max_retries: Maximum number of regeneration attempts when decision is
-                        "regenerate". Defaults to 2.
+            model: google.generativeai.GenerativeModel instance (auto-created if None).
+            policy: Validation policy name, path, or PolicyConfig. Defaults to "default".
+            max_retries: Max regeneration attempts on "regenerate" decision. Defaults to 2.
+            armoriq: Optional ArmorIQAdapter. When set, Gemini function/tool calls are
+                    automatically enforced for intent alignment after text validation.
+                    Pass ArmorIQAdapter(client=RuleBasedArmorIQClient()) for offline mode.
+                    Defaults to None (no enforcement).
+            user_task: Default task scope for ArmorIQ. Overridable per-call. Falls back
+                      to the prompt if neither is set. Defaults to None.
 
         Raises:
-            ImportError: If google.generativeai is not installed
-            PolicyLoadError: If policy cannot be loaded or validated
-            ValueError: If model is None and cannot be auto-initialized
-
-        Example:
-            >>> guarded = GuardedGemini(
-            ...     model=my_gemini_model,
-            ...     policy="rag_strict",
-            ...     max_retries=2
-            ... )
+            ImportError: If google-generativeai is not installed.
+            PolicyLoadError: If the policy cannot be loaded.
+            ValueError: If model is None and cannot be auto-initialized.
         """
-        # Verify google.generativeai is available
         if genai is None:
             raise ImportError(
                 "google.generativeai is required for GuardedGemini. "
                 "Install it with: pip install google-generativeai"
             )
 
-        # Store or initialize model
         if model is not None:
             self.model = model
         else:
@@ -125,65 +112,62 @@ class GuardedGemini:
                     "Please pass model explicitly or ensure GOOGLE_API_KEY is set."
                 ) from e
 
-        # Initialize Guard with policy
         try:
             self.guard = Guard(policy=policy)
             self.policy = self.guard.policy
         except PolicyLoadError as e:
-            raise PolicyLoadError(
-                policy_name=e.policy_name,
-                reason=e.reason,
-            ) from e
+            raise PolicyLoadError(policy_name=e.policy_name, reason=e.reason) from e
 
-        # Store retry limit
         self.max_retries = max(0, max_retries)
+        self.armoriq = armoriq
+        self.user_task = user_task
+
+        armor_mode = "disabled"
+        if armoriq is not None:
+            armor_mode = "stub" if armoriq.client is None else "enforcement"
 
         logger.debug(
-            f"GuardedGemini initialized with policy '{self.policy.name}' "
-            f"(max_retries={self.max_retries})"
+            f"GuardedGemini initialized: policy='{self.policy.name}', "
+            f"max_retries={self.max_retries}, armoriq={armor_mode}"
         )
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def generate(
         self,
         prompt: str,
         context: Optional[str] = None,
         domain: Optional[str] = None,
+        user_task: Optional[str] = None,
     ) -> str:
-        """Generate and validate output from the underlying Gemini model.
+        """Generate and validate a response from the underlying Gemini model.
 
-        This is the primary method for GuardedGemini. It calls the base model's
-        generate_content() method, validates the output, and handles regeneration
-        logic based on the validation decision:
+        Calls generate_content(), validates the output through the 3-tier cascade,
+        handles regeneration, and — if ArmorIQ is configured — automatically enforces
+        any tool/function calls returned by Gemini.
 
-        - "allow": Return the response text immediately
-        - "block": Raise HallucinationBlockedError with evidence
-        - "regenerate": Retry generation with a suggested_fix hint (up to max_retries)
-        - "abstain": Log a warning and return the response text (insufficient confidence)
+        Decision handling:
+            "allow"      → return text (+ ArmorIQ check if tool call present)
+            "block"      → raise HallucinationBlockedError
+            "regenerate" → retry with suggested_fix hint (up to max_retries)
+            "abstain"    → log warning and return text
 
         Args:
-            prompt: User prompt or query to pass to Gemini
-            context: Optional reference context (e.g., from RAG retriever).
-                    Used by validators to check faithfulness.
-            domain: Optional domain metadata (e.g., "healthcare", "finance").
-                   Used for policy-based tuning.
+            prompt: The user prompt to pass to Gemini.
+            context: Optional reference context for faithfulness checking.
+            domain: Optional domain tag (e.g. "healthcare") for policy tuning.
+            user_task: Per-call ArmorIQ task scope override. Falls back to the
+                      instance-level user_task, then to prompt.
 
         Returns:
-            The validated response text from the model.
+            Validated response text from the model.
 
         Raises:
-            HallucinationBlockedError: If validation fails and policy action is "block"
-            ValueError: If prompt is empty
-            Exception: Model API errors (network, quota, etc.) are re-raised
-
-        Example:
-            >>> try:
-            ...     response = guarded.generate(
-            ...         prompt="What is AI?",
-            ...         context="AI stands for artificial intelligence..."
-            ...     )
-            ...     print(response)
-            ... except HallucinationBlockedError as e:
-            ...     print(f"Blocked (risk={e.risk_score:.2f}): {e.evidence}")
+            HallucinationBlockedError: Validation failed and policy says block.
+            IntentViolationError: ArmorIQ detected a misaligned tool call.
+            ValueError: prompt is empty or not a string.
         """
         if not prompt or not isinstance(prompt, str):
             raise ValueError("prompt must be a non-empty string")
@@ -193,38 +177,33 @@ class GuardedGemini:
 
         while attempt <= self.max_retries:
             try:
-                # Generate content from base model
                 model_response = self.model.generate_content(current_prompt)
                 output = model_response.text
 
-                # Validate output
                 decision = self.guard.validate(
-                    prompt=prompt,  # Always use original prompt for validation
+                    prompt=prompt,
                     output=output,
                     context=context,
                     domain=domain,
                 )
 
-                # Log prompt security metadata if available
                 if decision.prompt_security_metadata:
                     logger.info(
                         f"Prompt analysis: intent={decision.prompt_security_metadata.get('intent')}, "
-                        f"sensitivity_tags={decision.prompt_security_metadata.get('sensitivity_tags')}, "
                         f"injection_risk={decision.prompt_injection_risk:.2f}"
                     )
 
-                # Handle decision
                 if decision.decision == "allow":
                     logger.debug(
                         f"Output allowed (risk={decision.risk_score:.2f}, "
                         f"latency={decision.latency_ms:.1f}ms)"
                     )
+                    self._enforce_action_if_needed(model_response, prompt, user_task)
                     return output
 
                 elif decision.decision == "block":
                     logger.warning(
-                        f"Output blocked (risk={decision.risk_score:.2f}, "
-                        f"latency={decision.latency_ms:.1f}ms): {decision.evidence}"
+                        f"Output blocked (risk={decision.risk_score:.2f}): {decision.evidence}"
                     )
                     raise HallucinationBlockedError(
                         evidence=decision.evidence,
@@ -236,49 +215,39 @@ class GuardedGemini:
                     attempt += 1
                     if attempt > self.max_retries:
                         logger.warning(
-                            f"Output blocked after {self.max_retries} regeneration "
-                            f"attempts (risk={decision.risk_score:.2f}): "
-                            f"{decision.evidence}"
+                            f"Blocked after {self.max_retries} retries "
+                            f"(risk={decision.risk_score:.2f}): {decision.evidence}"
                         )
                         raise HallucinationBlockedError(
                             evidence=decision.evidence,
                             risk_score=decision.risk_score,
                             decision="regenerate",
                         )
-
-                    # Prepare retry prompt with suggested fix
-                    hint = decision.suggested_fix or "Please be more accurate and faithful to the provided context."
-                    current_prompt = f"{prompt}\n\nHint: {hint}"
-                    logger.info(
-                        f"Regenerating (attempt {attempt}/{self.max_retries}). "
-                        f"Hint: {hint}"
+                    hint = decision.suggested_fix or (
+                        "Please be more accurate and faithful to the provided context."
                     )
+                    current_prompt = f"{prompt}\n\nHint: {hint}"
+                    logger.info(f"Regenerating (attempt {attempt}/{self.max_retries}). Hint: {hint}")
                     continue
 
                 elif decision.decision == "abstain":
                     logger.warning(
-                        f"Output validation inconclusive (confidence={decision.confidence:.2f}), "
-                        f"returning response: {decision.evidence}"
+                        f"Validation inconclusive (confidence={decision.confidence:.2f}), "
+                        f"returning response."
                     )
+                    self._enforce_action_if_needed(model_response, prompt, user_task)
                     return output
 
                 else:
-                    # Fallback for unexpected decision types
-                    logger.warning(
-                        f"Unexpected decision type: {decision.decision}. "
-                        f"Returning response."
-                    )
+                    logger.warning(f"Unexpected decision: {decision.decision}. Returning response.")
                     return output
 
-            except HallucinationBlockedError:
-                # Re-raise validation blocks (don't retry)
+            except (HallucinationBlockedError, IntentViolationError):
                 raise
             except Exception as e:
-                # Model API errors (network, quota, etc.)
                 logger.error(f"Model generation failed: {e}")
                 raise
 
-        # Should not reach here, but safety fallback
         logger.error("Unexpected state: exited retry loop without returning or raising")
         raise RuntimeError("GuardedGemini internal error: retry loop exhausted")
 
@@ -287,69 +256,105 @@ class GuardedGemini:
         prompt: str,
         context: Optional[str] = None,
         domain: Optional[str] = None,
+        user_task: Optional[str] = None,
     ) -> str:
-        """Async wrapper for generate() using asyncio.
-
-        This method allows non-blocking generation in async contexts. It runs the
-        synchronous generate() method in a thread pool to avoid blocking the event loop.
+        """Async wrapper for generate() — runs in thread pool to avoid blocking.
 
         Args:
-            prompt: User prompt or query to pass to Gemini
-            context: Optional reference context
-            domain: Optional domain metadata
+            prompt: User prompt to pass to Gemini.
+            context: Optional reference context.
+            domain: Optional domain metadata.
+            user_task: Optional per-call ArmorIQ task scope.
 
         Returns:
-            The validated response text from the model.
+            Validated response text.
 
         Raises:
-            HallucinationBlockedError: If validation fails and policy action is "block"
-            ValueError: If prompt is empty
-            Exception: Model API errors are re-raised
-
-        Example:
-            >>> async def main():
-            ...     response = await guarded.generate_async(
-            ...         prompt="What is AI?",
-            ...         context="AI stands for artificial intelligence..."
-            ...     )
-            ...     print(response)
-            >>>
-            >>> asyncio.run(main())
+            HallucinationBlockedError: Validation failed and policy says block.
+            IntentViolationError: ArmorIQ detected a misaligned tool call.
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
-            self.generate,
-            prompt,
-            context,
-            domain,
+            lambda: self.generate(prompt, context, domain, user_task),
         )
 
     def is_configured(self) -> bool:
-        """Check if GuardedGemini is properly configured and ready to use.
-
-        This method verifies that:
-        - google.generativeai is installed
-        - The base model is initialized
-        - The Guard policy is loaded
-
-        Returns:
-            True if GuardedGemini is ready to generate, False otherwise
-
-        Example:
-            >>> if guarded.is_configured():
-            ...     response = guarded.generate(prompt)
-            ... else:
-            ...     print("GuardedGemini not properly configured")
-        """
+        """Return True if GuardedGemini is properly initialized and ready to use."""
         try:
-            if genai is None:
-                return False
-            if self.model is None:
-                return False
-            if self.guard is None or self.guard.policy is None:
-                return False
-            return True
+            return (
+                genai is not None
+                and self.model is not None
+                and self.guard is not None
+                and self.guard.policy is not None
+            )
         except Exception as e:
             logger.warning(f"Configuration check failed: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _extract_action_plan(self, model_response: Any) -> Optional[str]:
+        """Extract a function/tool call from a Gemini response, if present.
+
+        Inspects response candidates for function_call parts and formats
+        them as a human-readable action_plan string for ArmorIQ enforcement.
+
+        Args:
+            model_response: Raw response from google.generativeai.
+
+        Returns:
+            Action string like "search_flights({'to': 'Paris'})", or None.
+        """
+        try:
+            if not hasattr(model_response, "candidates"):
+                return None
+            for candidate in model_response.candidates:
+                if not hasattr(candidate, "content"):
+                    continue
+                for part in candidate.content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        name = getattr(fc, "name", "unknown_tool")
+                        args = dict(getattr(fc, "args", {}))
+                        return f"{name}({args})"
+        except Exception as e:
+            logger.debug(f"Could not extract action plan from response: {e}")
+        return None
+
+    def _enforce_action_if_needed(
+        self,
+        model_response: Any,
+        prompt: str,
+        per_call_task: Optional[str],
+    ) -> None:
+        """Run ArmorIQ enforcement on tool calls if adapter is configured.
+
+        Only executes when an ArmorIQAdapter is set AND the response contains a
+        function/tool call. Raises IntentViolationError on misaligned actions.
+
+        Task scope resolution order (highest → lowest priority):
+            1. per_call_task (from this generate() call)
+            2. self.user_task (instance-level default)
+            3. prompt (fallback)
+
+        Args:
+            model_response: Raw Gemini response to inspect for tool calls.
+            prompt: Original user prompt (task scope fallback).
+            per_call_task: Per-call user_task override.
+
+        Raises:
+            IntentViolationError: If ArmorIQ detects a misaligned action.
+        """
+        if self.armoriq is None:
+            return
+
+        action_plan = self._extract_action_plan(model_response)
+        if action_plan is None:
+            return  # No tool call — nothing to enforce
+
+        task = per_call_task or self.user_task or prompt
+        logger.debug(f"ArmorIQ enforcing: task='{task}', action='{action_plan}'")
+        self.armoriq.enforce(task, action_plan)
