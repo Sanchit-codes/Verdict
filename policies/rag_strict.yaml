@@ -1,6 +1,6 @@
 name: "rag_strict"
 description: "Strict policy for high-risk RAG applications (healthcare, finance, legal)"
-latency_budget_ms: 150
+latency_budget_ms: 2000
 risk_threshold: 0.3
 enable_prompt_validators: true
 prompt_injection_threshold: 0.2
