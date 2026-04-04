@@ -202,6 +202,7 @@ class PromptAnalyzer:
             f"latency={latency_ms:.1f}ms"
         )
 
+        analysis_metadata = {"mode": "gemini"}
         return PromptAnalysisResult(
             original_prompt=prompt,
             refined_prompt=refined_prompt,
