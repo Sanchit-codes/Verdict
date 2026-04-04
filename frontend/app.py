@@ -35,10 +35,26 @@ if SDK_AVAILABLE:
     try:
         # Set preload environment variable
         os.environ['HG_PRELOAD_MODELS'] = 'true'
-        
-        # Create a guard to trigger preloading
-        preload_guard = Guard(policy='default')
-        print("✅ Models preloaded successfully")
+
+        # Explicitly preload each model
+        print("  Loading embedding model...")
+        from hallucination_guard.validators.embedding import preload_embedding
+        emb_ok = preload_embedding()
+        print(f"  Embedding preload: {'✅ Success' if emb_ok else '❌ Failed'}")
+
+        print("  Loading HHEM model...")
+        from hallucination_guard.validators.hhem import preload_hhem
+        hhem_ok = preload_hhem()
+        print(f"  HHEM preload: {'✅ Success' if hhem_ok else '❌ Failed'}")
+
+        if emb_ok and hhem_ok:
+            # Create guard after models are preloaded
+            preload_guard = Guard(policy='default')
+            print("✅ All models preloaded successfully")
+        else:
+            print("⚠️ Some models failed to preload, using lazy loading")
+            preload_guard = None
+
     except Exception as e:
         print(f"⚠️ Model preloading failed: {e}")
         print("   Validation will be slower but still functional")
@@ -188,9 +204,10 @@ def examples():
 if __name__ == '__main__':
     print("🚀 Starting HallucinationGuard Testing Frontend...")
     print(f"SDK Available: {SDK_AVAILABLE}")
-    
-    # Default to development mode
+
+    # Default to development mode but disable reloader to preserve model cache
     debug = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+    use_reloader = os.environ.get('FLASK_RELOADER', 'False').lower() == 'true'  # Default False to preserve cache
     port = int(os.environ.get('PORT', 5500))
-    
-    app.run(debug=debug, port=port, host='0.0.0.0')
+
+    app.run(debug=debug, port=port, host='0.0.0.0', use_reloader=use_reloader)
