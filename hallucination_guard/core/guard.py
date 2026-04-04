@@ -30,6 +30,8 @@ from hallucination_guard.core.trace import GuardTrace, export_trace
 from hallucination_guard.policy.loader import load_policy as _load_policy
 from hallucination_guard.policy.schema import PolicyConfig
 from hallucination_guard.validators.base import ValidationInput
+from hallucination_guard.validators.embedding import preload_embedding
+from hallucination_guard.validators.hhem import preload_hhem
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,7 @@ class Guard:
         policy: Union[str, Path, PolicyConfig],
         trace_enabled: Optional[bool] = None,
         enable_prompt_validators: bool = True,
+        preload_models: bool = False,
     ) -> None:
         """Initialize Guard with a policy configuration.
 
@@ -77,6 +80,10 @@ class Guard:
                           if LANGFUSE_PUBLIC_KEY is set. Explicit True/False overrides.
             enable_prompt_validators: Whether to enable Tier 0.5 prompt security validators
                           (prompt_structure and prompt_injection). Default True.
+            preload_models: Whether to preload embedding and HHEM models during initialization
+                          to eliminate first-run latency spikes. Default False for backward
+                          compatibility. Can also be enabled via HG_PRELOAD_MODELS=true
+                          environment variable. Preload failures are logged but don't crash.
 
         Raises:
             PolicyLoadError: If policy cannot be loaded or validated
@@ -95,6 +102,9 @@ class Guard:
             >>>
             >>> # With prompt validators disabled
             >>> guard4 = Guard(policy="default", enable_prompt_validators=False)
+            >>>
+            >>> # With model preloading enabled
+            >>> guard5 = Guard(policy="default", preload_models=True)
         """
         # Load policy
         try:
@@ -129,6 +139,24 @@ class Guard:
             self.trace_enabled = langfuse_key is not None
         else:
             self.trace_enabled = trace_enabled
+
+        # Preload models if requested
+        should_preload = preload_models or os.getenv("HG_PRELOAD_MODELS", "").lower() == "true"
+        if should_preload:
+            logger.info("Preloading validation models...")
+            try:
+                embedding_ok = preload_embedding()
+                hhem_ok = preload_hhem()
+                if embedding_ok and hhem_ok:
+                    logger.info("Models preloaded successfully")
+                elif embedding_ok:
+                    logger.warning("Embedding preloaded, HHEM unavailable")
+                elif hhem_ok:
+                    logger.warning("HHEM preloaded, embedding unavailable")
+                else:
+                    logger.warning("Model preload failed, will use lazy loading")
+            except Exception as e:
+                logger.warning(f"Model preload failed: {e}, will use lazy loading")
 
         logger.debug(
             f"Guard initialized with policy '{self.policy.name}' "
