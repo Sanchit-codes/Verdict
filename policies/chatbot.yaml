@@ -44,3 +44,9 @@ mitigation:
   on_block: "abstain"
   on_timeout: "allow"
   on_error: "abstain"
+
+# ArmorIQ intent enforcement — stub/log mode for low-latency chatbots
+armoriq:
+  enabled: false
+  mode: "stub"        # Log only, never block
+  on_violation: "log"

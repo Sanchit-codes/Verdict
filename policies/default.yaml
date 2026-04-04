@@ -46,3 +46,9 @@ mitigation:
   on_block: "block"
   on_timeout: "allow"
   on_error: "abstain"
+
+# ArmorIQ intent enforcement (disabled by default — enable to activate action enforcement)
+armoriq:
+  enabled: false
+  mode: "stub"        # 'stub' = log only | 'enforce' = actually block violations
+  on_violation: "block"
