@@ -76,6 +76,14 @@ class GuardDecision(BaseModel):
         default_factory=dict,
         description="Additional prompt security analysis metadata (patterns, intent, sensitivity)",
     )
+    # Preprocessing metadata (prompt analysis + context compaction stats)
+    preprocessing_metadata: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Preprocessing results attached when Guard.generate_and_validate() is used. "
+            "Includes prompt analysis (intent, was_refined) and context compaction stats."
+        ),
+    )
     # ArmorIQ action enforcement result (None when ArmorIQ is not used)
     action_enforcement: Optional[ActionEnforcementResult] = Field(
         default=None,

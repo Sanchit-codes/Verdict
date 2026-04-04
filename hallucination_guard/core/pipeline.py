@@ -16,12 +16,20 @@ Tier structure:
 Latency enforcement:
 - If elapsed time exceeds policy.latency_budget_ms, remaining validators
   marked with timeout error and score set to 0.5 (neutral)
+
+Thinking callbacks:
+- An optional ThinkingCallback(message: str) -> None can be passed to
+  ValidationPipeline to receive real-time step logs as the pipeline runs.
+  The callback is invoked for each validator start/finish and early-exit event.
 """
 
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import Callable, Optional
+
+# Type alias for the thinking callback.  Receives a plain-text log message.
+ThinkingCallback = Callable[[str], None]
 
 from hallucination_guard.core.decision import (
     GuardDecision,
@@ -61,9 +69,10 @@ class ValidationPipeline:
     Attributes:
         policy: PolicyConfig defining validator configuration and thresholds
         validators: Dict mapping validator names to instantiated validator objects
+        _thinking_cb: Optional callback invoked with each thinking-log message
     """
     
-    def __init__(self, policy: PolicyConfig):
+    def __init__(self, policy: PolicyConfig, thinking_callback: Optional[ThinkingCallback] = None):
         """Initialize pipeline with a policy configuration.
         
         Loads and instantiates validators based on policy.validators list.
@@ -72,8 +81,11 @@ class ValidationPipeline:
         
         Args:
             policy: PolicyConfig with validator configurations and latency budget
+            thinking_callback: Optional callable(message: str) invoked for each
+                pipeline step.  Defaults to None (no-op).
         """
         self.policy = policy
+        self._thinking_cb: Optional[ThinkingCallback] = thinking_callback
         self.validators: dict[str, BaseValidator] = {}
         
         # Load each enabled validator
@@ -109,6 +121,18 @@ class ValidationPipeline:
             except Exception as e:
                 logger.error(f"Failed to initialize validator '{validator_config.name}': {e}")
     
+    # ------------------------------------------------------------------
+    # Internal helper
+    # ------------------------------------------------------------------
+    def _emit(self, message: str) -> None:
+        """Emit a thinking-log message to the logger AND the optional callback."""
+        logger.info(message)
+        if self._thinking_cb is not None:
+            try:
+                self._thinking_cb(message)
+            except Exception:
+                pass  # Never let a bad callback crash the pipeline
+
     def run(
         self,
         input: ValidationInput,
@@ -167,16 +191,27 @@ class ValidationPipeline:
                     error="Timeout",
                 )
                 results.append(timeout_result)
-                logger.warning(
-                    f"Latency budget exceeded ({elapsed_ms:.2f}ms > "
-                    f"{self.policy.latency_budget_ms}ms), "
-                    f"skipping validator '{validator_config.name}'"
+                self._emit(
+                    f"⏱️  Latency budget exceeded ({elapsed_ms:.0f}ms > "
+                    f"{self.policy.latency_budget_ms}ms) — skipping '{validator_config.name}'"
                 )
                 continue
             
+            # Emit start of this validator
+            tier_label = self._tier_label(validator_config.name)
+            self._emit(f"🔍 Running {tier_label}: {validator_config.name} ...")
+
             # Run validator with error handling
             result = self._run_validator(validator, input, validator_config.timeout_ms)
             results.append(result)
+
+            # Emit result summary
+            status_icon = "✅" if result.passed else ("⚠️" if result.error else "❌")
+            self._emit(
+                f"   {status_icon} {validator_config.name}: score={result.score:.3f}, "
+                f"passed={result.passed}, latency={result.latency_ms:.1f}ms"
+                + (f"  [{result.error}]" if result.error else "")
+            )
             
             # Tier 0.5: Inject StructuredPrompt into ValidationInput for downstream use
             if validator_config.name == "prompt_structure":
@@ -194,9 +229,9 @@ class ValidationPipeline:
                     # Invert: 0.0 = risky, 1.0 = clean
                     injection_risk = 1.0 - result.score
                     if injection_risk > (1.0 - validator_config.threshold):
-                        logger.debug(
-                            f"Tier 0.5: Prompt injection detected (risk={injection_risk:.2f}), "
-                            f"blocking early"
+                        self._emit(
+                            f"🚨 Tier 0.5 Early-Exit: Prompt injection detected "
+                            f"(risk={injection_risk:.2f}) — BLOCKING"
                         )
                         # Return block decision immediately
                         latency_ms = (time.perf_counter() - start_time) * 1000
@@ -217,10 +252,10 @@ class ValidationPipeline:
                 # Tier 1 early-exit: score < 0.2 (clearly bad) or > 0.9 (clearly good)
                 if result.error is None:
                     if result.score < 0.2:
-                        logger.debug("Tier 1: Clear block (score < 0.2), exiting early")
+                        self._emit("⚡ Tier 1 Early-Exit: score < 0.2 — clearly bad, BLOCK")
                         break
                     elif result.score > 0.9:
-                        logger.debug("Tier 1: Clear allow (score > 0.9), exiting early")
+                        self._emit("⚡ Tier 1 Early-Exit: score > 0.9 — clearly good, ALLOW")
                         break
             
             elif tier_num == 2:
@@ -228,10 +263,10 @@ class ValidationPipeline:
                 if result.error is None:
                     aggregated, _ = aggregate_scores(results, weights)
                     if aggregated < 0.3:
-                        logger.debug("Tier 2: Clear block (weighted avg < 0.3), exiting early")
+                        self._emit(f"⚡ Tier 2 Early-Exit: weighted avg={aggregated:.3f} < 0.3 — BLOCK")
                         break
                     elif aggregated > 0.85:
-                        logger.debug("Tier 2: Clear allow (weighted avg > 0.85), exiting early")
+                        self._emit(f"⚡ Tier 2 Early-Exit: weighted avg={aggregated:.3f} > 0.85 — ALLOW")
                         break
         
         # Calculate final latency
@@ -247,6 +282,14 @@ class ValidationPipeline:
             latency_ms=latency_ms,
         )
         
+        decision_icon = {"allow": "✅", "block": "🚫", "regenerate": "🔄", "abstain": "🤷"}.get(
+            decision.decision, "❓"
+        )
+        self._emit(
+            f"{decision_icon} Final Decision: {decision.decision.upper()} "
+            f"(risk={decision.risk_score:.3f}, latency={latency_ms:.1f}ms)"
+        )
+
         # Fill in output field and return
         return decision.model_copy(update={"output": input.output})
     
@@ -336,6 +379,18 @@ class ValidationPipeline:
             "hhem": 3,
         }
         return tier_map.get(validator_name, 0)
+
+    @staticmethod
+    def _tier_label(validator_name: str) -> str:
+        """Return a human-readable tier label for thinking log messages."""
+        labels = {
+            "prompt_structure": "Tier 0.5 (Prompt Structure)",
+            "prompt_injection": "Tier 0.5 (Prompt Injection)",
+            "heuristics": "Tier 1 (Heuristics)",
+            "embedding": "Tier 2 (Embedding Similarity)",
+            "hhem": "Tier 3 (HHEM Classifier)",
+        }
+        return labels.get(validator_name, f"Tier ? ({validator_name})")
 
 
 def create_pipeline(policy: str | PolicyConfig) -> ValidationPipeline:

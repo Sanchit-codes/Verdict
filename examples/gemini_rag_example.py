@@ -74,7 +74,7 @@ def setup_guarded_gemini() -> GuardedGemini:
     genai.configure(api_key=api_key)
 
     # Create base Gemini model
-    base_model = genai.GenerativeModel("gemini-2.0-flash")
+    base_model = genai.GenerativeModel("gemini-2.5-flash")
 
     # Wrap with HallucinationGuard using rag_strict policy
     # rag_strict is designed for high-risk domains with lower thresholds

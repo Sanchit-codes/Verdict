@@ -289,15 +289,25 @@ def _export_to_langfuse(trace: GuardTrace) -> None:
 
         # Convert trace to Langfuse-compatible format
         # Langfuse expects: name, input, output, metadata, tags, timestamp
-        client.trace(
-            name=trace.name,
-            input=trace.input,
-            output=trace.output,
-            metadata=trace.metadata,
-            tags=trace.tags,
-            timestamp=trace.timestamp,
-            trace_id=trace.id,
-        )
+        if hasattr(client, 'trace'):
+            # Langfuse v2.x
+            client.trace(
+                name=trace.name,
+                input=trace.input,
+                output=trace.output,
+                metadata=trace.metadata,
+                tags=trace.tags,
+                timestamp=trace.timestamp,
+                trace_id=trace.id,
+            )
+        elif hasattr(client, 'create_event'):
+            # Langfuse v3+
+            client.create_event(
+                name=trace.name,
+                input=trace.input,
+                output=trace.output,
+                metadata=trace.metadata,
+            )
 
         logger.debug(f"Trace {trace.id} exported to Langfuse")
 

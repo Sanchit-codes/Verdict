@@ -309,7 +309,7 @@ def main() -> None:
     if api_key:
         try:
             genai.configure(api_key=api_key)
-            base_model = genai.GenerativeModel("gemini-2.0-flash")
+            base_model = genai.GenerativeModel("gemini-2.5-flash")
             console.print("[bold green]✓[/bold green] Gemini API configured")
         except Exception as e:
             console.print(f"[yellow]⚠ Gemini unavailable ({e}), skipping Pattern A[/yellow]")

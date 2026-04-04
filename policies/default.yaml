@@ -1,6 +1,6 @@
 name: "default"
 description: "Balanced general-purpose policy with prompt security and all validation tiers enabled"
-latency_budget_ms: 2000
+latency_budget_ms: 30000  # Generous budget to allow model warm-up on first request
 risk_threshold: 0.5
 enable_prompt_validators: true
 prompt_injection_threshold: 0.3
@@ -33,7 +33,7 @@ validators:
     enabled: true
     weight: 0.3
     threshold: 0.7
-    timeout_ms: 600  # Updated: Conservative timeout for singleton-cached embedding model
+    timeout_ms: 10000  # Allow up to 10s for embedding (covers cold-start model load)
   
   # TIER 3: HHEM Classifier
   - name: "hhem"
@@ -52,3 +52,11 @@ armoriq:
   enabled: false
   mode: "stub"        # 'stub' = log only | 'enforce' = actually block violations
   on_violation: "block"
+
+# Preprocessing (disabled by default — enable for prompt analysis + context compaction)
+# Used only by Guard.generate_and_validate(); has no effect on Guard.validate()
+preprocessing:
+  enabled: false
+  prompt_refinement: true       # let Gemini refine ambiguous prompts before generation
+  context_compaction: true      # compact large contexts to fit token budget
+  max_context_tokens: 2048      # target token budget after compaction
