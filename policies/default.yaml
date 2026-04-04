@@ -34,7 +34,7 @@ validators:
     enabled: true
     weight: 0.3
     threshold: 0.7
-    timeout_ms: 50  # Updated: 2x encode (~10ms each) + overhead with singleton model
+    timeout_ms: 400  # Updated: Conservative timeout for singleton-cached embedding model
   
   # TIER 3: HHEM Classifier
   - name: "hhem"
