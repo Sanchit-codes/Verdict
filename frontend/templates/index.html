@@ -94,6 +94,13 @@
             </details>
             <details open>
                 <summary><i class="fas fa-chart-line" style="color: var(--warning); margin-right: 8px;"></i>Decision Details</summary>
+            if (metadata.tier_results) {
+                decisionHtml += `<div class="meta-row"><span class="meta-label">Tier Results:</span> <div style="margin-top: 4px;">`;
+                for (const vr of metadata.tier_results) {
+                    decisionHtml += `<div style="font-size: 12px; margin-bottom: 2px;">${vr.validator_name}: ${vr.score.toFixed(3)} (${vr.passed ? 'pass' : 'fail'})</div>`;
+                }
+                decisionHtml += `</div></div>`;
+            }
                 <div class="content" id="decision-details-content">
                     <p>Decision details will appear here after a response.</p>
                 </div>
@@ -163,6 +170,15 @@
                     <div class="meta-row"><span class="meta-label">Latency:</span> <span>${latency}ms</span></div>
                     ${evidence !== 'n/a' ? `<div class="meta-row"><span class="meta-label">Evidence:</span> <span style="color: #f87171;">${evidence}</span></div>` : ''}
                 `;
+                
+                // Add tier results if available
+                if (metadata.tier_results && metadata.tier_results.length > 0) {
+                    decisionHtml += `<div class="meta-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #444;"><span class="meta-label">Tier Results:</span></div>`;
+                    for (const vr of metadata.tier_results) {
+                        const tierStatus = vr.passed ? '✓' : '✗';
+                        decisionHtml += `<div style="font-size: 12px; margin: 4px 0; margin-left: 16px;">${tierStatus} ${vr.validator_name}: ${vr.score.toFixed(3)}</div>`;
+                    }
+                }
             }
             decisionDetailsContent.innerHTML = decisionHtml;
 
