@@ -23,6 +23,7 @@ from hallucination_guard.preprocessing.prompt_compactor import (
     PromptCompactor,
     CompactionResult,
 )
+from hallucination_guard.preprocessing.ground_truth import GroundTruthContext
 
 __all__ = [
     "PromptAnalyzer",
@@ -31,4 +32,5 @@ __all__ = [
     "ContextEntry",
     "PromptCompactor",
     "CompactionResult",
+    "GroundTruthContext",
 ]

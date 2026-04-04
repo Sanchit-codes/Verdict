@@ -19,6 +19,7 @@ Usage::
 """
 
 import logging
+import re
 import time
 from typing import Optional
 
@@ -208,8 +209,203 @@ class PromptAnalyzer:
             intent=intent_enum,
             needs_refinement=needs_refinement,
             latency_ms=latency_ms,
-            analysis_metadata={"mode": "gemini", "model": self._model_name},
+            analysis_metadata=analysis_metadata,
         )
+
+    def extract_ground_truth(self, analysis: PromptAnalysisResult) -> "GroundTruthContext":
+        """Extract structured ground truth context from prompt analysis.
+
+        Creates a canonical understanding of user intent that can be used
+        consistently throughout a session for validation and action enforcement.
+
+        Args:
+            analysis: Result from analyze() method.
+
+        Returns:
+            GroundTruthContext with structured understanding of the prompt.
+        """
+        import time
+        from hallucination_guard.preprocessing.ground_truth import GroundTruthContext
+
+        # Extract core task from prompt
+        core_task = self._extract_core_task(analysis.original_prompt, analysis.intent)
+
+        # Extract entities and constraints
+        entities = self._extract_entities(analysis.original_prompt)
+        constraints = self._extract_constraints(analysis.original_prompt)
+
+        # Infer domain and sensitivity
+        domain = self._infer_domain(analysis.original_prompt, entities)
+        sensitivity_tags = self._infer_sensitivity(analysis.original_prompt, domain)
+
+        # Determine context requirements based on intent and domain
+        context_requirements = self._determine_context_requirements(
+            analysis.intent, domain, entities
+        )
+
+        # Calculate confidence based on analysis quality
+        confidence = self._calculate_confidence(analysis)
+
+        return GroundTruthContext(
+            original_prompt=analysis.original_prompt,
+            intent=analysis.intent,
+            core_task=core_task,
+            constraints=constraints,
+            entities=entities,
+            domain=domain,
+            sensitivity_tags=sensitivity_tags,
+            context_requirements=context_requirements,
+            created_at=time.time(),
+            confidence=confidence,
+        )
+
+    # ------------------------------------------------------------------
+    # Ground truth extraction helpers
+    # ------------------------------------------------------------------
+
+    def _extract_core_task(self, prompt: str, intent: PromptIntent) -> str:
+        """Extract the core task description from a prompt."""
+        # Simple heuristics for common patterns
+        lower = prompt.lower().strip()
+
+        # Remove question words for questions
+        if intent == PromptIntent.QUESTION:
+            for word in ["what", "who", "where", "when", "why", "how", "is", "are", "can", "could"]:
+                if lower.startswith(word + " "):
+                    return prompt[len(word) + 1:].strip().capitalize()
+
+        # For instructions, try to extract the main verb/action
+        if intent == PromptIntent.INSTRUCTION:
+            # Look for action verbs
+            actions = ["find", "search", "get", "create", "write", "summarize",
+                      "explain", "analyze", "calculate", "list", "show", "display"]
+            for action in actions:
+                if action in lower:
+                    # Find the action and what follows
+                    idx = lower.find(action)
+                    if idx >= 0:
+                        return prompt[idx:].strip().capitalize()
+
+        # Default: use the whole prompt as the task
+        return prompt
+
+    def _extract_entities(self, prompt: str) -> list[str]:
+        """Extract key entities (names, places, concepts) from prompt."""
+        import re
+
+        entities = []
+
+        # Capitalized noun phrases (simple heuristic)
+        cap_pattern = re.compile(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b')
+        entities.extend(cap_pattern.findall(prompt))
+
+        # Numbers and dates
+        num_pattern = re.compile(r'\b\d+(?:\.\d+)?\b|\b\d{4}-\d{2}-\d{2}\b')
+        entities.extend(num_pattern.findall(prompt))
+
+        return list(set(entities))  # Remove duplicates
+
+    def _extract_constraints(self, prompt: str) -> list[str]:
+        """Extract constraints or requirements from prompt."""
+        constraints = []
+
+        lower = prompt.lower()
+
+        # Look for limiting words
+        limit_words = ["only", "just", "must", "should", "cannot", "don't",
+                      "no", "never", "avoid", "exclude", "without"]
+
+        for word in limit_words:
+            if word in lower:
+                # Find the sentence containing the constraint
+                sentences = re.split(r'[.!?]+', prompt)
+                for sentence in sentences:
+                    if word in sentence.lower():
+                        constraints.append(sentence.strip())
+
+        return constraints[:3]  # Limit to top 3 constraints
+
+    def _infer_domain(self, prompt: str, entities: list[str]) -> str:
+        """Infer the domain/context from prompt content."""
+        import re
+        lower = prompt.lower()
+
+        # Domain keywords (word boundaries)
+        domains = {
+            "healthcare": ["medical", "health", "patient", "doctor", "treatment", "diagnosis"],
+            "finance": ["money", "bank", "account", "investment", "loan", "credit", "financial"],
+            "legal": ["law", "contract", "agreement", "court", "legal", "regulation"],
+            "education": ["school", "student", "teacher", "course", "learn", "study"],
+            "technology": ["software", "computer", "code", "programming", "api", "database", "tech", "algorithm"],
+            "travel": ["flight", "flights", "hotel", "travel", "booking", "reservation", "trip", "book", "fly"],
+        }
+
+        for domain, keywords in domains.items():
+            # Check for word boundaries to avoid substring matches
+            for keyword in keywords:
+                if re.search(r'\b' + re.escape(keyword) + r'\b', lower):
+                    return domain
+
+        return "general"
+
+    def _infer_sensitivity(self, prompt: str, domain: str) -> list[str]:
+        """Infer sensitivity tags based on content."""
+        tags = []
+        lower = prompt.lower()
+
+        # Add domain-based sensitivity
+        if domain in ["healthcare", "finance", "legal"]:
+            tags.append(domain)
+
+        # Check for PII indicators
+        pii_indicators = ["ssn", "social security", "credit card", "password",
+                         "address", "phone", "email", "personal"]
+        if any(indicator in lower for indicator in pii_indicators):
+            tags.append("personal")
+
+        return tags
+
+    def _determine_context_requirements(self, intent: PromptIntent, domain: str, entities: list[str]) -> list[str]:
+        """Determine what context/reference material would be helpful."""
+        requirements = []
+
+        # Intent-based requirements
+        if intent == PromptIntent.QUESTION:
+            requirements.append("factual reference material")
+        elif intent == PromptIntent.INSTRUCTION:
+            requirements.append("examples and guidelines")
+
+        # Domain-based requirements
+        if domain == "healthcare":
+            requirements.append("medical guidelines and protocols")
+        elif domain == "finance":
+            requirements.append("financial regulations and data")
+        elif domain == "legal":
+            requirements.append("relevant laws and precedents")
+
+        # Entity-based requirements
+        if entities:
+            requirements.append(f"context about: {', '.join(entities[:3])}")
+
+        return requirements
+
+    def _calculate_confidence(self, analysis: PromptAnalysisResult) -> float:
+        """Calculate confidence score for the ground truth extraction."""
+        confidence = 0.5  # Base confidence
+
+        # Higher confidence for Gemini analysis
+        if analysis.analysis_metadata.get("mode") == "gemini":
+            confidence += 0.2
+
+        # Lower confidence if refinement was needed
+        if analysis.needs_refinement:
+            confidence -= 0.1
+
+        # Adjust based on intent clarity
+        if analysis.intent != PromptIntent.CHAT:  # Clear intent
+            confidence += 0.1
+
+        return max(0.1, min(1.0, confidence))
 
     def _analyze_heuristic(
         self, prompt: str, start: float

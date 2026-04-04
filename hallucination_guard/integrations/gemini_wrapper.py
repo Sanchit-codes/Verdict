@@ -149,6 +149,61 @@ class GuardedGemini:
     # Public API
     # ------------------------------------------------------------------
 
+    def _extract_thinking_and_actions(self, response: Any) -> tuple[str, str]:
+        """Extract thinking process and action intent from Gemini response.
+        
+        Gemini responses can contain multiple parts:
+        - thinking: The LLM's reasoning process (where bad intent appears)
+        - text: The final output
+        
+        Returns:
+            Tuple of (thinking_text, action_text) where either can be empty string
+        """
+        thinking = ""
+        actions = ""
+        
+        try:
+            # Handle google.generativeai.GenerateContentResponse
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        for part in candidate.content.parts:
+                            # Extract thinking (reflection/reasoning)
+                            if hasattr(part, 'text') and hasattr(part, 'function_call'):
+                                # Part with both text and function call
+                                if part.text:
+                                    actions += part.text + " "
+                            elif hasattr(part, 'function_call'):
+                                # Function/tool call parts
+                                func_call = part.function_call
+                                if hasattr(func_call, 'name'):
+                                    actions += f"Call {func_call.name} with args {getattr(func_call, 'args', {})} "
+                            elif hasattr(part, 'text'):
+                                # Regular text - could be thinking or reasoning
+                                if '<think>' in str(part.text).lower() or 'thinking:' in str(part.text).lower():
+                                    thinking += part.text + " "
+                                    
+            # Also check for extended model response with thinking
+            if hasattr(response, 'text'):
+                text = response.text
+                # Heuristic: look for thinking/reasoning tags or markers
+                if '<think>' in text:
+                    # Split thinking from output
+                    parts = text.split('</think>')
+                    if len(parts) >= 1:
+                        thinking = parts[0].replace('<think>', '')
+                        actions = ''.join(parts[1:])
+                        return thinking.strip(), actions.strip()
+                        
+        except Exception as e:
+            logger.debug(f"Error extracting thinking from response: {e}")
+        
+        # Fallback: if no explicit thinking, use text as potential actions
+        if hasattr(response, 'text'):
+            actions = response.text
+            
+        return thinking.strip(), actions.strip()
+
     def generate(
         self,
         prompt: str,
@@ -192,6 +247,26 @@ class GuardedGemini:
         while attempt <= self.max_retries:
             try:
                 model_response = self.model.generate_content(current_prompt)
+                
+                # **EARLY ARMORIQ CHECK**: Intercept thinking process before validation
+                # This catches bad intent at the LLM's reasoning level, not in the final output
+                if self.armoriq and self.guard.armoriq:
+                    thinking, potential_actions = self._extract_thinking_and_actions(model_response)
+                    effective_task = user_task or self.user_task
+                    if not effective_task and prompt:
+                        # Extract task hint from prompt
+                        effective_task = prompt[:100]
+                    
+                    if thinking and effective_task:
+                        try:
+                            # Check if the thinking reveals intent misalignment
+                            self.armoriq.enforce(effective_task, thinking)
+                            logger.debug(f"Thinking process aligned with task: {effective_task}")
+                        except Exception as armor_err:
+                            # ArmorIQ detected misalignment in thinking
+                            logger.warning(f"Intent violation in LLM thinking: {armor_err}")
+                            raise
+                
                 output = model_response.text
 
                 decision = self.guard.validate(
@@ -419,5 +494,13 @@ class GuardedGemini:
             return  # No tool call — nothing to enforce
 
         task = per_call_task or self.user_task or prompt
+
+        # Try to get ground truth task from preprocessing if available
+        if hasattr(self.guard, 'preprocessing_enabled') and self.guard.preprocessing_enabled:
+            session_key = per_call_task or self.user_task or "default"
+            ground_truth_task = self.guard._context_mgr.get_session_task(session_key)  # type: ignore[attr-defined]
+            if ground_truth_task:
+                task = ground_truth_task
+
         logger.debug(f"ArmorIQ enforcing: task='{task}', action='{action_plan}'")
         self.armoriq.enforce(task, action_plan)
