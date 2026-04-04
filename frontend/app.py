@@ -29,36 +29,8 @@ except ImportError as e:
     SDK_AVAILABLE = False
     Guard = None
 
-# Preload models on startup if SDK is available
-if SDK_AVAILABLE:
-    print("Preloading validation models...")
-    try:
-        # Set preload environment variable
-        os.environ['HG_PRELOAD_MODELS'] = 'true'
-
-        # Explicitly preload each model
-        print("  Loading embedding model...")
-        from hallucination_guard.validators.embedding import preload_embedding
-        emb_ok = preload_embedding()
-        print(f"  Embedding preload: {'✅ Success' if emb_ok else '❌ Failed'}")
-
-        print("  Loading HHEM model...")
-        from hallucination_guard.validators.hhem import preload_hhem
-        hhem_ok = preload_hhem()
-        print(f"  HHEM preload: {'✅ Success' if hhem_ok else '❌ Failed'}")
-
-        if emb_ok and hhem_ok:
-            # Create guard after models are preloaded
-            preload_guard = Guard(policy='default')
-            print("✅ All models preloaded successfully")
-        else:
-            print("⚠️ Some models failed to preload, using lazy loading")
-            preload_guard = None
-
-    except Exception as e:
-        print(f"⚠️ Model preloading failed: {e}")
-        print("   Validation will be slower but still functional")
-        preload_guard = None
+# Global preload guard (initialized later)
+preload_guard = None
 
 app = Flask(__name__)
 
