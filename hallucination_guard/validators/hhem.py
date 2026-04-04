@@ -8,6 +8,55 @@ import logging
 import os
 import time
 from typing import Optional
+import threading
+
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+
+_HHEM_MODEL = None
+_HHEM_TOKENIZER = None
+_HHEM_MODEL_LOCK = threading.Lock()
+_HHEM_MODEL_LOAD_ERROR: Optional[str] = None
+_HHEM_MODEL_LOAD_ATTEMPTED = False
+
+
+def _get_hhem_model():
+    global _HHEM_MODEL, _HHEM_TOKENIZER, _HHEM_MODEL_LOAD_ERROR, _HHEM_MODEL_LOAD_ATTEMPTED
+    if _HHEM_MODEL is not None and _HHEM_TOKENIZER is not None:
+        return _HHEM_TOKENIZER, _HHEM_MODEL, None
+
+    with _HHEM_MODEL_LOCK:
+        if _HHEM_MODEL is not None and _HHEM_TOKENIZER is not None:
+            return _HHEM_TOKENIZER, _HHEM_MODEL, None
+        try:
+            model_name = "vectara/hallucination_evaluation_model"
+            logger.info(f"Loading HHEM model (singleton): {model_name}")
+            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            model = AutoModelForSequenceClassification.from_pretrained(model_name, trust_remote_code=True)
+            model.eval()
+            _HHEM_MODEL = model
+            _HHEM_TOKENIZER = tokenizer
+            _HHEM_MODEL_LOAD_ERROR = None
+            _HHEM_MODEL_LOAD_ATTEMPTED = True
+            logger.info("HHEM singleton model loaded successfully")
+            return tokenizer, model, None
+        except Exception as e:  # pragma: no cover - defensive
+            _HHEM_MODEL = None
+            _HHEM_TOKENIZER = None
+            _HHEM_MODEL_LOAD_ERROR = str(e)
+            _HHEM_MODEL_LOAD_ATTEMPTED = True
+            logger.warning(f"Failed to load HHEM singleton model: {e}")
+            return None, None, _HHEM_MODEL_LOAD_ERROR
+
+
+def preload_hhem() -> bool:
+    """Eagerly load the HHEM model singleton.
+
+    Returns:
+        True if the model is available after the call, False otherwise.
+    """
+    tokenizer, model, error = _get_hhem_model()
+    return tokenizer is not None and model is not None and error is None
 
 from hallucination_guard.validators.base import (
     BaseValidator,
@@ -40,11 +89,8 @@ class HHEMValidator(BaseValidator):
         self.threshold = config.get("threshold", 0.5)
         self.timeout_ms = config.get("timeout_ms", 80)
         
-        # Model and tokenizer are lazy-loaded on first validate() call
-        self.model = None
-        self.tokenizer = None
-        self._model_load_attempted = False
-        self._model_load_error: Optional[str] = None
+        # Uses process-wide singleton model/tokenizer (see module-level cache).
+        # Instance keeps only threshold/timeout configuration.
     
     def is_available(self) -> bool:
         """Check if HHEM validator can run.
@@ -65,34 +111,14 @@ class HHEMValidator(BaseValidator):
         except ImportError:
             return False
     
-    def _load_model(self) -> bool:
-        """Lazy-load HHEM model and tokenizer.
-        
+    def _load_model(self):
+        """Get or load the shared HHEM model and tokenizer.
+
         Returns:
-            True if model loaded successfully, False otherwise.
+            Tuple (tokenizer, model, error). If error is not None, tokenizer/model
+            will be None and caller should treat the validator as unavailable.
         """
-        if self._model_load_attempted:
-            return self.model is not None
-        
-        self._model_load_attempted = True
-        
-        try:
-            from transformers import AutoTokenizer, AutoModelForSequenceClassification
-            
-            model_name = "vectara/hallucination_evaluation_model"
-            logger.info(f"Loading HHEM model: {model_name}")
-            
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
-            self.model.eval()  # Set to evaluation mode
-            
-            logger.info("HHEM model loaded successfully")
-            return True
-            
-        except Exception as e:
-            self._model_load_error = str(e)
-            logger.warning(f"Failed to load HHEM model: {e}")
-            return False
+        return _get_hhem_model()
     
     def validate(self, input: ValidationInput) -> ValidationResult:
         """Validate output faithfulness using HHEM model.
@@ -105,11 +131,11 @@ class HHEMValidator(BaseValidator):
             - 1.0 = definitely faithful to context
             - 0.0 = definitely hallucinated
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         # Check if HHEM is disabled via environment variable
         if os.getenv("HG_DISABLE_HHEM", "false").lower() == "true":
-            latency_ms = (time.time() - start_time) * 1000
+            latency_ms = (time.perf_counter() - start_time) * 1000
             return ValidationResult(
                 validator_name="hhem",
                 score=0.5,
@@ -121,7 +147,7 @@ class HHEMValidator(BaseValidator):
         
         # Handle missing context
         if input.context is None:
-            latency_ms = (time.time() - start_time) * 1000
+            latency_ms = (time.perf_counter() - start_time) * 1000
             return ValidationResult(
                 validator_name="hhem",
                 score=0.5,
@@ -131,23 +157,24 @@ class HHEMValidator(BaseValidator):
                 error="No context"
             )
         
-        # Attempt to load model if not already loaded
-        if not self._load_model():
-            latency_ms = (time.time() - start_time) * 1000
-            error_msg = self._model_load_error or "Model load failed"
-            return ValidationResult(
-                validator_name="hhem",
-                score=0.5,
-                passed=False,
-                evidence=f"Model unavailable: {error_msg}",
-                latency_ms=latency_ms,
-                error=error_msg
-            )
-        
         # Run inference
         try:
-            import torch
-            
+            tokenizer, model, error = self._load_model()
+            if error is not None or tokenizer is None or model is None:
+                # Cache tokenizer/model on the instance for faster access after singleton load
+                self.tokenizer = tokenizer if tokenizer is not None else None
+                self.model = model if model is not None else None
+                latency_ms = (time.perf_counter() - start_time) * 1000
+                error_msg = error or "Model load failed"
+                return ValidationResult(
+                    validator_name="hhem",
+                    score=0.5,
+                    passed=False,
+                    evidence=f"Model unavailable: {error_msg}",
+                    latency_ms=latency_ms,
+                    error=error_msg,
+                )
+
             # Format input as required by HHEM model
             # The model expects: "Context: {context}\nOutput: {output}"
             formatted_input = f"Context: {input.context}\nOutput: {input.output}"
@@ -173,7 +200,7 @@ class HHEMValidator(BaseValidator):
                 # Extract faithfulness probability (second class)
                 faithfulness_score = probs[0][1].item()
             
-            latency_ms = (time.time() - start_time) * 1000
+            latency_ms = (time.perf_counter() - start_time) * 1000
             passed = faithfulness_score >= self.threshold
             
             return ValidationResult(
@@ -185,7 +212,7 @@ class HHEMValidator(BaseValidator):
             )
             
         except Exception as e:
-            latency_ms = (time.time() - start_time) * 1000
+            latency_ms = (time.perf_counter() - start_time) * 1000
             logger.warning(f"HHEM inference failed: {e}")
             
             # Graceful degradation: return neutral score
