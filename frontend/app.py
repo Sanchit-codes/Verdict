@@ -11,6 +11,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from flask import Flask, render_template, request, jsonify
 import traceback
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+# Silence werkzeug debug logs so they don't spam
+logging.getLogger('werkzeug').setLevel(logging.INFO)
+# Un-silence the guard logs
+logging.getLogger('hallucination_guard').setLevel(logging.DEBUG)
 
 # Load environment variables from .env file if it exists
 try:
@@ -23,6 +33,25 @@ except ImportError:
 try:
     from hallucination_guard import Guard
     from hallucination_guard.prompts.schema import PromptIntent, PromptSensitivity
+    from hallucination_guard.validators.embedding import preload_embedding
+    from hallucination_guard.validators.hhem import preload_hhem
+    
+    # Warm up the heavy ML models in the background at server boot.
+    # This means the first /chat request won't pay the 6-8s cold-start penalty.
+    import threading
+    def _warm_models():
+        import logging as _log
+        _log.getLogger('hallucination_guard').info(
+            "[Warmup] Starting background model preload..."
+        )
+        emb_ok = preload_embedding()
+        hhem_ok = preload_hhem()
+        _log.getLogger('hallucination_guard').info(
+            f"[Warmup] Preload complete — embedding={'OK' if emb_ok else 'FAILED'}, "
+            f"hhem={'OK' if hhem_ok else 'FAILED'}"
+        )
+    threading.Thread(target=_warm_models, daemon=True, name="model-warmup").start()
+    
     SDK_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: HallucinationGuard SDK not available: {e}")
@@ -53,60 +82,64 @@ def index():
                          intent_options=intent_options,
                          sensitivity_options=sensitivity_options)
 
-@app.route('/validate', methods=['POST'])
-def validate():
-    """Run validation on the provided prompt"""
+@app.route('/chat', methods=['POST'])
+def chat():
+    """Run generation and validation in unified pipeline"""
     if not SDK_AVAILABLE:
-        return jsonify({
-            'error': 'HallucinationGuard SDK not available'
-        }), 500
+        return jsonify({'error': 'HallucinationGuard SDK not available'}), 500
     
     try:
         data = request.get_json()
         
         prompt = data.get('prompt', '').strip()
-        output = data.get('output', '').strip()
         context = data.get('context', '').strip()
         policy = data.get('policy', 'default')
         domain = data.get('domain', 'general')
+        session_id = data.get('session_id', 'demo_session')
+        use_refinement = data.get('use_refinement', True)
         
         if not prompt:
-            return jsonify({
-                'error': 'Prompt is required'
-            }), 400
+            return jsonify({'error': 'Prompt is required'}), 400
+            
+        # We need ArmorIQ setup for a full demo
+        from hallucination_guard.integrations.armoriq import ArmorIQAdapter, RuleBasedArmorIQClient
+        armor = ArmorIQAdapter(client=RuleBasedArmorIQClient())
         
-        # Use preloaded guard if available, otherwise create new one
-        if preload_guard is not None:
-            guard = preload_guard
-        else:
-            # Fallback: create guard with selected policy (slower)
-            guard = Guard(policy=policy)
+        # If use_refinement is False, we can still use preprocessing to allow Context Compaction
+        # but in our current guard API preprocessing is boolean. We'll set it False to save quota if requested.
+        guard = Guard(policy=policy, preprocessing=use_refinement, armoriq=armor)
         
-        # Run validation
-        decision = guard.validate(
+        # Run unified pipeline
+        decision = guard.generate_and_validate(
             prompt=prompt,
-            output=output if output else None,
             context=context if context else None,
-            domain=domain
+            domain=domain,
+            session_key=session_id
         )
         
         # Convert decision to dict for JSON response
         result = {
             'decision': decision.decision,
+            'output': decision.output,
             'risk_score': round(decision.risk_score, 3),
             'evidence': decision.evidence,
             'suggested_fix': decision.suggested_fix,
             'latency_ms': decision.latency_ms,
-            'prompt_injection_risk': round(decision.prompt_injection_risk, 3),
-            'prompt_security_metadata': decision.prompt_security_metadata or {},
-            'tier_results': []
+            'preprocessing_metadata': decision.preprocessing_metadata or {},
         }
         
+        if decision.action_enforcement:
+            result['action_enforcement'] = {
+                'enforced': decision.action_enforcement.enforced,
+                'allowed': decision.action_enforcement.allowed,
+                'reason': decision.action_enforcement.reason
+            }
+            
         # Add tier results if available
-        if hasattr(decision, 'tier_results'):
-            for tier_result in decision.tier_results:
+        if hasattr(decision, 'validator_results'):
+            result['tier_results'] = []
+            for tier_result in decision.validator_results:
                 result['tier_results'].append({
-                    'tier': tier_result.tier,
                     'validator_name': tier_result.validator_name,
                     'score': round(tier_result.score, 3),
                     'passed': tier_result.passed,
@@ -117,11 +150,9 @@ def validate():
         return jsonify(result)
         
     except Exception as e:
-        print(f"Validation error: {e}")
+        print(f"Chat error: {e}")
         traceback.print_exc()
-        return jsonify({
-            'error': f'Validation failed: {str(e)}'
-        }), 500
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
 
 @app.route('/examples')
 def examples():

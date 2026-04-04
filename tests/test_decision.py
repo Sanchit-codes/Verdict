@@ -618,7 +618,7 @@ def test_full_pipeline_block_workflow(default_policy):
     aggregated_score, confidence = aggregate_scores(results, weights)
     
     # Make decision
-    decision = make_decision(results, aggregated_score, default_policy, 110.0)
+    decision = make_decision(results, aggregated_score, default_policy, 50.0)
     
     assert decision.decision == "block"
     assert decision.risk_score > 0.5
