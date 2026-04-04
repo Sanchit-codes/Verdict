@@ -34,6 +34,7 @@ except ImportError:
     GenerateContentResponse = None
 
 from hallucination_guard.core.guard import Guard
+from hallucination_guard.core.decision import GuardDecision
 from hallucination_guard.core.exceptions import (
     HallucinationBlockedError,
     IntentViolationError,
