@@ -38,6 +38,7 @@ from hallucination_guard.validators.embedding import EmbeddingValidator
 from hallucination_guard.validators.heuristics import HeuristicsValidator
 from hallucination_guard.validators.hhem import HHEMValidator
 from hallucination_guard.validators.prompt_injection import PromptInjectionValidator
+from hallucination_guard.validators.content_classifier import ContentClassifierValidator
 from hallucination_guard.validators.prompt_structure import PromptStructureValidator
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 # Mapping of validator names to their implementation classes
 VALIDATOR_REGISTRY: dict[str, type[BaseValidator]] = {
+    "content_classifier": ContentClassifierValidator,
     "prompt_structure": PromptStructureValidator,
     "prompt_injection": PromptInjectionValidator,
     "heuristics": HeuristicsValidator,
@@ -179,6 +181,28 @@ class ValidationPipeline:
             # Run validator with error handling
             logger.debug(f"Pipeline: running validator '{validator_config.name}'...")
             result = self._run_validator(validator, input, validator_config.timeout_ms)
+
+            # Content classifier early exit (allow non-factual content)
+            if validator_config.name == "content_classifier":
+                if result.error is None and result.score >= 0.9:
+                    logger.debug(
+                        f"Tier 0: Non-factual content detected, allowing without validation"
+                    )
+                    # Return allow decision immediately
+                    latency_ms = (time.perf_counter() - start_time) * 1000
+                    return GuardDecision(
+                        decision="allow",
+                        risk_score=0.0,
+                        confidence=1.0,
+                        output=input.output,
+                        evidence=f"Non-factual content: {result.evidence}",
+                        suggested_fix=None,
+                        validator_results=results,
+                        latency_ms=latency_ms,
+                        policy_name=self.policy.name,
+                    )
+
+            
             results.append(result)
             logger.debug(f"Pipeline: '{result.validator_name}' completed with score={result.score:.3f}, latency={result.latency_ms:.1f}ms")
 
@@ -218,25 +242,17 @@ class ValidationPipeline:
                         )
 
             if tier_num == 1:
-                # Tier 1 early-exit: score < 0.2 (clearly bad) or > 0.9 (clearly good)
+                # Tier 1 early-exit: only allow early exit for clearly good scores
+                # Heuristics alone should never block — always fall through to Tier 2/3
                 if result.error is None:
-                    if result.score < 0.2:
-                        logger.debug("Tier 1: Clear block (score < 0.2), exiting early")
-                        break
-                    elif result.score > 0.9:
+                    if result.score > 0.9:
                         logger.debug("Tier 1: Clear allow (score > 0.9), exiting early")
                         break
 
             elif tier_num == 2:
-                # Tier 2 early-exit: weighted avg < 0.3 or > 0.85
-                if result.error is None:
-                    aggregated, _ = aggregate_scores(results, weights)
-                    if aggregated < 0.3:
-                        logger.debug("Tier 2: Clear block (weighted avg < 0.3), exiting early")
-                        break
-                    elif aggregated > 0.85:
-                        logger.debug("Tier 2: Clear allow (weighted avg > 0.85), exiting early")
-                        break
+                # Tier 2: no early-exit — always fall through to Tier 3 (HHEM)
+                # to ensure the faithfulness classifier always runs
+                pass
 
         # Calculate final latency
         latency_ms = (time.perf_counter() - start_time) * 1000
@@ -333,6 +349,7 @@ class ValidationPipeline:
 
         Returns:
             Tier number (0, 1, 2, or 3)
+            "content_classifier": 0,
         """
         tier_map = {
             "prompt_structure": 0,

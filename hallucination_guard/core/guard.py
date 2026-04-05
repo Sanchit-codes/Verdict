@@ -502,6 +502,22 @@ class Guard:
                 }
                 # Attach full snapshot to decision later for UIs/clients
                 preprocessing_meta["_ground_truth_full"] = gt_snapshot
+
+                # Use ground truth as validation context when no explicit context provided
+                if not context or not context.strip():
+                    gt_parts = []
+                    if ground_truth.core_task:
+                        gt_parts.append(f"Task: {ground_truth.core_task}")
+                    if ground_truth.entities:
+                        gt_parts.append(f"Entities: {', '.join(ground_truth.entities)}")
+                    if ground_truth.context_requirements:
+                        gt_parts.append("\n".join(ground_truth.context_requirements))
+                    if ground_truth.constraints:
+                        gt_parts.append(f"Constraints: {', '.join(ground_truth.constraints)}")
+                    if gt_parts:
+                        effective_context = "\n".join(gt_parts)
+                        logger.debug(f"Guard: using ground truth as validation context ({len(effective_context)} chars)")
+
                 if context:
                     self._context_mgr.update(key, context)  # type: ignore[attr-defined]
                     entry = self._context_mgr.compact(  # type: ignore[attr-defined]
@@ -521,7 +537,7 @@ class Guard:
                     f"Guard: preprocessing failed ({e}), continuing with original prompt/context"
                 )
                 effective_prompt = prompt
-                effective_context = context
+
         # ── Stage 2: Gemini Generation ────────────────────────────────
         try:
             import google.generativeai as genai
