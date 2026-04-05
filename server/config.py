@@ -39,6 +39,12 @@ class Config:
     DEFAULT_DOMAIN: str = "general"
     ENABLE_ARMORIQ: bool = os.getenv("HG_ENABLE_ARMORIQ", "false").lower() == "true"
 
+    # Gemini LLM config
+    GEMINI_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.7"))
+    GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "1024"))
+
     # Observability config
     REQUEST_LOGGING_ENABLED: bool = True
     LATENCY_TRACKING_ENABLED: bool = True
