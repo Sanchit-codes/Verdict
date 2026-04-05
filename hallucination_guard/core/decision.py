@@ -92,6 +92,21 @@ class GuardDecision(BaseModel):
             "or ArmorIQ is not configured."
         ),
     )
+    # Optional model thinking and ground truth snapshots (for demos/UIs)
+    thinking: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Optional model thinking / reasoning metadata attached by high-level "
+            "pipelines for UI/debugging purposes."
+        ),
+    )
+    ground_truth: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Optional ground truth snapshot attached by preprocessing layers for "
+            "UI/debugging purposes. Mirrors GroundTruthContext in a JSON-safe form."
+        ),
+    )
 
     model_config = {"frozen": True}
 

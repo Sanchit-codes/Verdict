@@ -117,6 +117,20 @@ class TestGuardInitialization:
         assert guard.pipeline is not None
         assert isinstance(guard.trace_enabled, bool)
 
+    def test_guard_fast_mode_disables_heavy_validators(self):
+        """Fast mode should disable embedding and HHEM validators at runtime."""
+        guard = Guard(policy="default", fast_mode=True, trace_enabled=False)
+
+        decision = guard.validate(
+            prompt="What is AI?",
+            output="AI is artificial intelligence.",
+            context="AI stands for artificial intelligence.",
+        )
+
+        validator_names = {r.validator_name for r in decision.validator_results}
+        assert "embedding" not in validator_names
+        assert "hhem" not in validator_names
+
     def test_guard_init_with_policy_path(self):
         """Test Guard initializes with policy file path."""
         policy_path = "policies/default.yaml"

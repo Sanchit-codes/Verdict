@@ -6,6 +6,14 @@ enable_prompt_validators: true
 prompt_injection_threshold: 0.3
 
 validators:
+  # TIER 0: Content Classification
+  - name: "content_classifier"
+    enabled: true
+    weight: 0.0
+    threshold: 0.9
+    timeout_ms: 5
+  
+
   # Timeout budgets: Embedding 600ms, HHEM 10000ms (no limit)
   
   # TIER 0.5: Prompt Security

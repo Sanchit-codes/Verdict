@@ -44,6 +44,7 @@ def _get_embedding_model() -> Tuple[Any, Optional[str]]:
             return _EMBEDDING_MODEL, None
 
         if _EMBEDDING_MODEL_LOAD_ATTEMPTED and _EMBEDDING_MODEL is None:
+            logger.debug(f"Embedding model previously failed to load: {_EMBEDDING_MODEL_LOAD_ERROR}")
             return None, _EMBEDDING_MODEL_LOAD_ERROR
 
         try:
@@ -170,10 +171,10 @@ class EmbeddingValidator(BaseValidator):
         
         Returns:
             ValidationResult with cosine similarity score in [0, 1] range
+        logger.debug(f"EmbeddingValidator.validate() called - context={'present' if input.context else 'None'}, output_len={len(input.output) if input.output else 0}")
         """
         start_time = time.perf_counter()
-        
-        # Handle missing context
+
         if input.context is None or input.context.strip() == "":
             latency_ms = (time.perf_counter() - start_time) * 1000
             return ValidationResult(
@@ -183,7 +184,7 @@ class EmbeddingValidator(BaseValidator):
                 evidence="No context provided, skipping embedding similarity check",
                 latency_ms=latency_ms,
             )
-        
+
         # Get singleton model
         model, error = self._load_model()
         
@@ -191,6 +192,7 @@ class EmbeddingValidator(BaseValidator):
         if model is None or error is not None:
             latency_ms = (time.perf_counter() - start_time) * 1000
             error_msg = error or "Model load failed"
+            logger.warning(f"Embedding validator returning neutral score (0.5): {error_msg}")
             return ValidationResult(
                 validator_name="embedding",
                 score=0.5,

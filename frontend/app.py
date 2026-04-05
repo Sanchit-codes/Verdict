@@ -26,9 +26,16 @@ logging.getLogger('hallucination_guard').setLevel(logging.DEBUG)
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    env_path = Path(__file__).parent.parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+    logger = logging.getLogger(__name__)
+    if os.getenv("GOOGLE_API_KEY"):
+        logger.info(".env loaded successfully with GOOGLE_API_KEY")
+    else:
+        logger.warning(".env loaded but GOOGLE_API_KEY not found")
 except ImportError:
     pass  # python-dotenv not installed, continue without .env loading
+
 
 # Import the SDK
 try:
@@ -40,7 +47,9 @@ try:
     # Warm up the heavy ML models in the background at server boot.
     # This means the first /chat request won't pay the 6-8s cold-start penalty.
     import threading
-    def _warm_models() -> None:
+    _warmup_complete = threading.Event()
+    
+    def _warm_models():
         import logging as _log
         _log.getLogger('hallucination_guard').info(
             "[Warmup] Starting background model preload..."
@@ -51,6 +60,8 @@ try:
             f"[Warmup] Preload complete — embedding={'OK' if emb_ok else 'FAILED'}, "
             f"hhem={'OK' if hhem_ok else 'FAILED'}"
         )
+        _warmup_complete.set()  # Signal that warmup is done
+    
     threading.Thread(target=_warm_models, daemon=True, name="model-warmup").start()
     
     SDK_AVAILABLE = True
@@ -174,7 +185,11 @@ def chat() -> Any:
     if not SDK_AVAILABLE:
         return jsonify({'error': 'HallucinationGuard SDK not available'}), 500
     
-    stream_id = ''
+    
+    # Wait for model warmup to complete (max 30 seconds)
+    if not _warmup_complete.wait(timeout=30):
+        logging.getLogger('hallucination_guard').warning("[Chat] Model warmup not complete after 30s, proceeding anyway")
+    
     try:
         data = request.get_json()
         
@@ -185,6 +200,11 @@ def chat() -> Any:
         session_id = data.get('session_id', 'demo_session')
         use_refinement = data.get('use_refinement', True)
         stream_id = data.get('stream_id', '')  # passed by frontend for SSE correlation
+        
+        logging.getLogger('hallucination_guard').debug(
+            f"Flask /chat: prompt={repr(prompt[:50])}, context={repr(context[:50] if context else None)}, "
+            f"context_len={len(context) if context else 0}"
+        )
         
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
@@ -234,6 +254,9 @@ def chat() -> Any:
             'suggested_fix': decision.suggested_fix,
             'latency_ms': decision.latency_ms,
             'preprocessing_metadata': decision.preprocessing_metadata or {},
+            # Surface model thinking and ground truth snapshots for the UI demo
+            'thinking': getattr(decision, 'thinking', None),
+            'ground_truth': getattr(decision, 'ground_truth', None),
         }
         
         if decision.action_enforcement:

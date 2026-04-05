@@ -104,7 +104,7 @@ from hallucination_guard.integrations import GuardedGemini
 import google.generativeai as genai
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-base_model = genai.GenerativeModel("gemini-2.5-flash")
+base_model = genai.GenerativeModel("gemini-2.0-flash")
 
 # Wrap with guard (auto-retry on hallucinations)
 guarded = GuardedGemini(
@@ -273,13 +273,13 @@ Contributions welcome! Please ensure:
 
 - [x] Project structure and dependency setup
 - [ ] Core validation engine (Guard, Pipeline, Decision)
-- [ ] Tier 1: Heuristics validator
-- [ ] Tier 2: Embedding validator
-- [ ] Tier 3: HHEM validator
-- [ ] Policy system (YAML loader, schema)
-- [ ] Gemini integration (GuardedGemini)
-- [ ] ArmorIQ integration (intent enforcement)
-- [ ] LangChain integration
+- [x] Tier 1: Heuristics validator
+- [x] Tier 2: Embedding validator
+- [x] Tier 3: HHEM validator
+- [x] Policy system (YAML loader, schema)
+- [x] Gemini integration (GuardedGemini)
+- [x] ArmorIQ integration (intent enforcement)
+- [x] LangChain integration
 - [ ] CLI tools (eval, benchmark)
 - [ ] HaluBench evaluation
 - [ ] Phase 2: Lynx 8B validator (GPU)

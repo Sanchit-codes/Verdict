@@ -179,6 +179,7 @@ class HHEMValidator(BaseValidator):
             if error is not None or model is None:
                 latency_ms = (time.perf_counter() - start_time) * 1000
                 error_msg = error or "Model load failed"
+                logger.warning(f"HHEM validator returning neutral score (0.5): {error_msg}")
                 return ValidationResult(
                     validator_name="hhem",
                     score=0.5,

@@ -6,301 +6,103 @@
     <title>HallucinationGuard - Unified Chat</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-dark: #0f172a;
-            --bg-panel: #1e293b;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --border: #334155;
-            --user-bubble: #2563eb;
-            --bot-bubble: #1e293b;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .sidebar {
-            width: 300px;
-            background-color: var(--bg-panel);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-        }
-
-        .sidebar h2 {
-            font-size: 18px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: var(--text-main);
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: var(--text-muted);
-            font-size: 14px;
-        }
-
-        select, input[type="text"], textarea {
-            width: 100%;
-            padding: 10px;
-            background-color: var(--bg-dark);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-main);
-            font-size: 14px;
-        }
-
-        .main-chat {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-        }
-
-        .chat-header {
-            padding: 20px;
-            background-color: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .chat-header span {
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        .chat-body {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .message {
-            max-width: 80%;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .message.user {
-            align-self: flex-end;
-        }
-
-        .message.bot {
-            align-self: flex-start;
-        }
-
-        .bubble {
-            padding: 12px 16px;
-            border-radius: 12px;
-            font-size: 15px;
-            line-height: 1.5;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .user .bubble {
-            background-color: var(--user-bubble);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .bot .bubble {
-            background-color: var(--bot-bubble);
-            border: 1px solid var(--border);
-            border-bottom-left-radius: 4px;
-        }
-
-        .meta-card {
-            background-color: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px;
-            font-size: 12px;
-            margin-top: 8px;
-            color: var(--text-muted);
-        }
-
-        .meta-card.allow { border-left: 4px solid var(--success); }
-        .meta-card.block { border-left: 4px solid var(--danger); }
-        .meta-card.regenerate { border-left: 4px solid var(--warning); }
-
-        .meta-header {
-            font-weight: bold;
-            margin-bottom: 8px;
-            color: var(--text-main);
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .meta-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 4px;
-        }
-
-        .meta-label { font-weight: 600; color: #cbd5e1; }
-
-        .chat-input-container {
-            padding: 20px;
-            background-color: var(--bg-dark);
-            border-top: 1px solid var(--border);
-        }
-
-        .chat-input-wrapper {
-            display: flex;
-            gap: 10px;
-            position: relative;
-        }
-
-        .chat-input-wrapper textarea {
-            resize: none;
-            height: 50px;
-            padding-right: 50px;
-            font-family: inherit;
-        }
-
-        .send-btn {
-            position: absolute;
-            right: 10px;
-            top: 10px;
-            background-color: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            width: 32px;
-            height: 32px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-        }
-
-        .send-btn:hover { background-color: var(--accent-hover); }
-
-        .loading { display: none; align-items: center; gap: 8px; color: var(--text-muted); padding: 10px; }
-        .spinner { animation: spin 1s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        .thinking-panel {
-            width: 350px;
-            background-color: var(--bg-panel);
-            border-left: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .thinking-header {
-            padding: 20px;
-            background-color: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .thinking-logs {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            color: #10b981;
-            background-color: #020617;
-        }
-
-        .log-entry {
-            margin-bottom: 8px;
-            word-wrap: break-word;
-        }
-
-        .log-warning { color: #f59e0b; }
-        .log-error { color: #ef4444; }
-        .log-success { color: #10b981; }
-        .log-step { color: #e2e8f0; }
-        .log-stage { color: #c084fc; font-weight: 700; margin-top: 12px; margin-bottom: 4px; }
-    </style>
+    <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
 </head>
 <body>
 
-    <div class="sidebar">
-        <h2><i class="fas fa-shield-halved"></i> Guard Settings</h2>
-        <div class="form-group">
-            <label>Policy</label>
-            <select id="policy">
-                <option value="default">Default (Balanced)</option>
-                <option value="rag_strict">RAG Strict (High Security)</option>
-                <option value="chatbot">Chatbot (Low Latency)</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Context / Knowledge Base</label>
-            <textarea id="context" rows="8" placeholder="Paste context or document here... The system will use Context Compaction to fit the budget.">Apple Inc. is a technology company headquartered in Cupertino, California. It designs, manufactures, and sells consumer electronics, software, and services.</textarea>
-        </div>
-        <div class="form-group">
-            <label>Session ID</label>
-            <input type="text" id="session" value="demo_chat_1">
-        </div>
-        <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-            <input type="checkbox" id="use_refinement" checked style="width: 16px; height: 16px; flex-shrink: 0;">
-            <label for="use_refinement" style="margin: 0; cursor: pointer;">Enable Preprocessing (Consumes 1 extra quota request)</label>
-        </div>
-    </div>
+    <header>
+        <i class="fas fa-shield-halved" style="margin-right: 10px;"></i>
+        HallucinationGuard + ArmorIQ Demo
+    </header>
 
-    <div class="main-chat">
-        <div class="chat-header">
-            <h3>Unified Pipeline Demo</h3>
-            <span>Gemini 2.0 + Prompt Analyzer + Context Compaction + ArmorIQ</span>
-        </div>
-        <div class="chat-body" id="chat-body">
-            <!-- Messages go here -->
-            <div class="message bot">
-                <div class="bubble">Hello! I'm protected by HallucinationGuard. Ask me anything, or try testing my boundaries.</div>
+    <div class="main-container">
+
+        <aside class="sidebar">
+            <h2><i class="fas fa-cogs"></i> Settings</h2>
+            <div class="form-group">
+                <label>Policy</label>
+                <select id="policy">
+                    <option value="default">Default (Balanced)</option>
+                    <option value="rag_strict">RAG Strict (High Security)</option>
+                    <option value="chatbot">Chatbot (Low Latency)</option>
+                </select>
             </div>
-        </div>
-
-        <div class="loading" id="loading">
-            <i class="fas fa-circle-notch spinner"></i> Processing via Unified Pipeline...
-        </div>
-
-        <div class="chat-input-container">
-            <div class="chat-input-wrapper">
-                <textarea id="prompt" placeholder="Message Guarded AI... (e.g., 'What is Apple?', or 'search for flights')"></textarea>
-                <button class="send-btn" id="send-btn"><i class="fas fa-paper-plane"></i></button>
+            <div class="form-group">
+                <label>Domain</label>
+                <input type="text" id="domain" value="general">
             </div>
-        </div>
+            <div class="form-group">
+                <label>Intent/Sensitivity</label>
+                <select id="intent">
+                    <option value="informational">Informational</option>
+                    <option value="transactional">Transactional</option>
+                    <option value="navigational">Navigational</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Context / Knowledge Base</label>
+                <textarea id="context" rows="8" placeholder="Paste context or document here...">Apple Inc. is a technology company headquartered in Cupertino, California. It designs, manufactures, and sells consumer electronics, software, and services.</textarea>
+            </div>
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="use_refinement" checked style="width: 16px; height: 16px; flex-shrink: 0;">
+                <label for="use_refinement" style="margin: 0; cursor: pointer;">Enable Preprocessing</label>
+            </div>
+            <div class="form-group">
+                <label>Session ID</label>
+                <input type="text" id="session" value="demo_chat_1">
+            </div>
+        </aside>
+
+        <main class="chat-area">
+            <div class="chat-header">
+                <h3>Unified Pipeline Demo</h3>
+                <span>Gemini 2.0 + Prompt Analyzer + Context Compaction + ArmorIQ</span>
+            </div>
+            <div class="chat-body" id="chat-body">
+                <div class="message bot">
+                    <div class="bubble">Hello! I'm protected by HallucinationGuard. Ask me anything, or try testing my boundaries.</div>
+                </div>
+            </div>
+
+            <div class="loading" id="loading">
+                <i class="fas fa-circle-notch spinner"></i> Processing via Unified Pipeline...
+            </div>
+
+            <div class="chat-input-container">
+                <div class="chat-input-wrapper">
+                    <textarea id="prompt" placeholder="Message Guarded AI..."></textarea>
+                    <button class="send-btn" id="send-btn"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </main>
+
+        <aside class="signals-panel">
+            <details open>
+                <summary><i class="fas fa-check-circle" style="color: var(--success); margin-right: 8px;"></i>Ground Truth</summary>
+                <div class="content" id="ground-truth-content">
+                    <p>No ground truth available yet.</p>
+                </div>
+            </details>
+            <details>
+                <summary><i class="fas fa-brain" style="color: var(--accent); margin-right: 8px;"></i>Model Thinking</summary>
+                <div class="content" id="model-thinking-content">
+                    <p>Model thinking will appear here after a response.</p>
+                </div>
+            </details>
+            <details open>
+                <summary><i class="fas fa-chart-line" style="color: var(--warning); margin-right: 8px;"></i>Decision Details</summary>
+                <div class="content" id="decision-details-content">
+                    <p>Decision details will appear here after a response.</p>
+                </div>
+            </details>
+            <details>
+                <summary><i class="fas fa-shield-alt" style="color: var(--danger); margin-right: 8px;"></i>ArmorIQ Status</summary>
+                <div class="content" id="armoriq-status-content">
+                    <p>ArmorIQ status will appear here after a response.</p>
+                </div>
+            </details>
+        </aside>
+
     </div>
 
     <!-- Thinking Process Panel -->
@@ -318,94 +120,98 @@
         const promptInput = document.getElementById('prompt');
         const sendBtn = document.getElementById('send-btn');
         const loading = document.getElementById('loading');
-        
+        const groundTruthContent = document.getElementById('ground-truth-content');
+        const modelThinkingContent = document.getElementById('model-thinking-content');
+        const decisionDetailsContent = document.getElementById('decision-details-content');
+        const armoriqStatusContent = document.getElementById('armoriq-status-content');
+
+        function updateSignalsPanel(metadata) {
+            if (!metadata) {
+                groundTruthContent.innerHTML = '<p>No ground truth available yet.</p>';
+                modelThinkingContent.innerHTML = '<p>Model thinking will appear here after a response.</p>';
+                decisionDetailsContent.innerHTML = '<p>Decision details will appear here after a response.</p>';
+                armoriqStatusContent.innerHTML = '<p>ArmorIQ status will appear here after a response.</p>';
+                return;
+            }
+
+            // Ground Truth
+            let gtHtml = '<p>No ground truth.</p>';
+            if (metadata.ground_truth) {
+                const gt = metadata.ground_truth;
+                gtHtml = `
+                    <div class="meta-row"><span class="meta-label">Core Task:</span> <span>${gt.core_task || 'n/a'}</span></div>
+                    <div class="meta-row"><span class="meta-label">Domain:</span> <span>${gt.domain || 'general'}</span></div>
+                    ${gt.entities && gt.entities.length ? `<div class="meta-row"><span class="meta-label">Entities:</span> <span>${gt.entities.join(', ')}</span></div>` : ''}
+                `;
+            }
+            groundTruthContent.innerHTML = gtHtml;
+
+            // Model Thinking
+            let thinkingHtml = '<p>No thinking captured.</p>';
+            if (metadata.thinking) {
+                const thinking = metadata.thinking;
+                thinkingHtml = `
+                    ${thinking.text ? `<div style="margin-bottom: 8px; font-family: monospace; white-space: pre-wrap; font-size: 12px;">${thinking.text}</div>` : ''}
+                    ${thinking.intent_check ? `<div class="meta-row"><span class="meta-label">Intent Check:</span> <span>${thinking.intent_check.status}${thinking.intent_check.reason ? ' - ' + thinking.intent_check.reason : ''}</span></div>` : ''}
+                `;
+            }
+            modelThinkingContent.innerHTML = thinkingHtml;
+
+            // Decision Details
+            let decisionHtml = '<p>No decision data.</p>';
+            if (metadata.decision) {
+                const decision = metadata.decision;
+                const risk = metadata.risk_score || 'n/a';
+                const latency = metadata.latency_ms || 'n/a';
+                const evidence = metadata.evidence || 'n/a';
+                decisionHtml = `
+                    <div class="meta-row"><span class="meta-label">Decision:</span> <span>${decision.toUpperCase()}</span></div>
+                    <div class="meta-row"><span class="meta-label">Risk Score:</span> <span>${risk}</span></div>
+                    <div class="meta-row"><span class="meta-label">Latency:</span> <span>${latency}ms</span></div>
+                    ${evidence !== 'n/a' ? `<div class="meta-row"><span class="meta-label">Evidence:</span> <span style="color: #f87171;">${evidence}</span></div>` : ''}
+                `;
+                
+                // Add tier results if available
+                if (metadata.tier_results && metadata.tier_results.length > 0) {
+                    decisionHtml += `<div class="meta-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #444;"><span class="meta-label">Tier Results:</span></div>`;
+                    for (const vr of metadata.tier_results) {
+                        const tierStatus = vr.passed ? '✓' : '✗';
+                        decisionHtml += `<div style="font-size: 12px; margin: 4px 0; margin-left: 16px;">${tierStatus} ${vr.validator_name}: ${vr.score.toFixed(3)}</div>`;
+                    }
+                }
+            }
+            decisionDetailsContent.innerHTML = decisionHtml;
+
+            // ArmorIQ Status
+            let armoriqHtml = '<p>No ArmorIQ data.</p>';
+            if (metadata.action_enforcement) {
+                const ae = metadata.action_enforcement;
+                armoriqHtml = `
+                    <div class="meta-row"><span class="meta-label">Status:</span> <span>${ae.allowed ? 'Allowed' : 'Blocked'}</span></div>
+                    ${ae.reason ? `<div class="meta-row"><span class="meta-label">Reason:</span> <span>${ae.reason}</span></div>` : ''}
+                `;
+            }
+            armoriqStatusContent.innerHTML = armoriqHtml;
+        }
+
         function appendMessage(role, text, metadata = null) {
             const msgDiv = document.createElement('div');
             msgDiv.className = `message ${role}`;
-            
             let html = `<div class="bubble">${text}</div>`;
-            
-            if (metadata) {
-                const decisionClass = metadata.decision?.toLowerCase() || 'abstain';
-                let statsHtml = `
-                <div class="meta-card ${decisionClass}">
-                    <div class="meta-header">
-                        <span>Guard Decision: ${metadata.decision.toUpperCase()}</span>
-                        <span>Risk: ${metadata.risk_score} | ${metadata.latency_ms}ms</span>
-                    </div>`;
-
-                if (metadata.preprocessing_metadata) {
-                    const pa = metadata.preprocessing_metadata.prompt_analysis;
-                    const cc = metadata.preprocessing_metadata.context_compaction;
-                    if (pa) {
-                        statsHtml += `<div class="meta-row"><span class="meta-label">Analyzer Intent:</span> <span>${pa.intent} (Refined: ${pa.was_refined})</span></div>`;
-                    }
-                    if (cc) {
-                        statsHtml += `<div class="meta-row"><span class="meta-label">Context Compaction:</span> <span>${cc.original_tokens} → ${cc.compacted_tokens} tokens</span></div>`;
-                    }
-                }
-                
-                if (metadata.action_enforcement) {
-                    const ae = metadata.action_enforcement;
-                    statsHtml += `<div class="meta-row"><span class="meta-label">ArmorIQ:</span> <span>${ae.allowed ? 'Aligned' : 'Blocked'}${ae.reason ? ' - ' + ae.reason : ''}</span></div>`;
-                }
-
-                if (metadata.evidence) {
-                    statsHtml += `<div class="meta-row" style="margin-top: 8px; color: #f87171;"><span class="meta-label">Evidence:</span> <span>${metadata.evidence}</span></div>`;
-                }
-
-                statsHtml += `</div>`;
-                html += statsHtml;
-            }
-            
             msgDiv.innerHTML = html;
             chatBody.appendChild(msgDiv);
             chatBody.scrollTop = chatBody.scrollHeight;
+            updateSignalsPanel(metadata);
         }
 
         async function sendMessage() {
             const text = promptInput.value.trim();
             if (!text) return;
-            
+
             promptInput.value = '';
             appendMessage('user', text);
-            
+
             loading.style.display = 'flex';
-            
-            // Generate a stream ID to link with SSE and prepare the logs container
-            const streamId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-            const logsContainer = document.getElementById('thinking-logs');
-            logsContainer.innerHTML = '';
-            
-            // Setup SSE for the thinking logs
-            const eventSource = new EventSource(`/stream?stream_id=${streamId}`);
-            eventSource.onmessage = function(event) {
-                if (event.data === '__done__') {
-                    eventSource.close();
-                    return;
-                }
-                const logDiv = document.createElement('div');
-                logDiv.className = 'log-entry';
-                
-                let logText = event.data;
-                if (logText.includes('Stage')) {
-                    logDiv.classList.add('log-stage');
-                } else if (logText.includes('❌') || logText.includes('🚨') || logText.includes('failed') || logText.includes('BLOCK')) {
-                    logDiv.classList.add('log-error');
-                } else if (logText.includes('⚠️')) {
-                    logDiv.classList.add('log-warning');
-                } else if (logText.includes('✅') || logText.includes('ALLOW')) {
-                    logDiv.classList.add('log-success');
-                } else {
-                    logDiv.classList.add('log-step');
-                }
-                logDiv.textContent = logText;
-                logsContainer.appendChild(logDiv);
-                logsContainer.scrollTop = logsContainer.scrollHeight;
-            };
-            eventSource.onerror = function() {
-                eventSource.close();
-            };
 
             try {
                 const response = await fetch('/chat', {
@@ -417,13 +223,12 @@
                         policy: document.getElementById('policy').value,
                         session_id: document.getElementById('session').value,
                         use_refinement: document.getElementById('use_refinement').checked,
-                        domain: 'demo',
-                        stream_id: streamId
+                        domain: document.getElementById('domain').value
                     })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.error) {
                     appendMessage('bot', `Error: ${data.error}`);
                 } else {
@@ -446,6 +251,9 @@
                 sendMessage();
             }
         });
+
+        // Initialize signals panel
+        updateSignalsPanel(null);
     </script>
 </body>
 </html>

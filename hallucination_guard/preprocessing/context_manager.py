@@ -19,6 +19,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from hallucination_guard.preprocessing.ground_truth import GroundTruthContext
+
 logger = logging.getLogger(__name__)
 
 # Rough estimate: average English word ≈ 1.3 tokens
@@ -242,5 +244,70 @@ class ContextManager:
         """Return all stored keys."""
         return list(self._store.keys())
 
-    def __len__(self) -> int:
-        return len(self._store)
+    def store_ground_truth(self, key: str, ground_truth: GroundTruthContext) -> None:
+        """Store a ground truth context for a session.
+
+        Associates a GroundTruthContext with a session key for persistent
+        intent understanding throughout the conversation.
+
+        Args:
+            key: Session/domain key.
+            ground_truth: The extracted ground truth context.
+        """
+        # Store as metadata in the context entry
+        existing = self._store.get(key)
+        if existing is None:
+            # Create a minimal context entry if none exists
+            import time
+            entry = ContextEntry(
+                key=key,
+                content="",  # Empty content since we're only storing ground truth
+                token_count=0,
+                created_at=time.time(),
+                updated_at=time.time(),
+            )
+            self._store[key] = entry
+
+        # Store ground truth in a way that persists with the entry
+        # We'll add it as an attribute to the ContextEntry
+        # Since ContextEntry is frozen, we need to create a new one
+        current = self._store[key]
+        # For now, store in a separate dict keyed by session
+        if not hasattr(self, '_ground_truth_store'):
+            self._ground_truth_store: dict[str, GroundTruthContext] = {}
+        self._ground_truth_store[key] = ground_truth
+
+        logger.debug(
+            f"ContextManager: stored ground truth for '{key}' "
+            f"(task: '{ground_truth.core_task[:50]}...', "
+            f"domain: {ground_truth.domain}, confidence: {ground_truth.confidence:.2f})"
+        )
+
+    def retrieve_ground_truth(self, key: str) -> Optional[GroundTruthContext]:
+        """Retrieve stored ground truth context for a session.
+
+        Args:
+            key: Session/domain key.
+
+        Returns:
+            GroundTruthContext if found, or None.
+        """
+        if hasattr(self, '_ground_truth_store'):
+            return self._ground_truth_store.get(key)
+        return None
+
+    def get_session_task(self, key: str) -> Optional[str]:
+        """Get the core task description for ArmorIQ enforcement.
+
+        Convenience method to get the task description from stored ground truth.
+
+        Args:
+            key: Session/domain key.
+
+        Returns:
+            Task description string, or None if no ground truth stored.
+        """
+        ground_truth = self.retrieve_ground_truth(key)
+        if ground_truth:
+            return ground_truth.get_task_description()
+        return None
