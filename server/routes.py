@@ -13,12 +13,16 @@ from hallucination_guard import Guard
 from hallucination_guard.core.exceptions import IntentViolationError
 
 from .config import Config
+from .gemini_generator import GeminiGenerator
 from .middleware import log_request
 from .schemas import (
     ActionEnforcementInfo,
     BatchValidateRequest,
     BatchValidateResponse,
     ErrorResponse,
+    GenerateRequest,
+    GenerateResponse,
+    GenerationLatency,
     HealthResponse,
     ValidateRequest,
     ValidationDecision,
@@ -31,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Global state for model warmup
 _warmup_complete = threading.Event()
 _guard_instance: Guard | None = None
+_generator_instance: GeminiGenerator | None = None
 
 
 def init_guard(config: Config) -> None:
@@ -91,6 +96,31 @@ def get_guard(policy: str = "default") -> Guard | None:
         _guard_instance = Guard(policy=policy)
 
     return _guard_instance
+
+
+def get_generator(model: str | None = None) -> GeminiGenerator | None:
+    """Get or create GeminiGenerator instance.
+
+    Args:
+        model: Gemini model to use. If None, uses default from config.
+
+    Returns:
+        GeminiGenerator instance or None if Gemini API is not available.
+    """
+    global _generator_instance
+
+    # Return existing instance if API key is still configured
+    if _generator_instance is not None:
+        return _generator_instance
+
+    # Try to create new instance
+    try:
+        _generator_instance = GeminiGenerator(model=model or "gemini-2.5-flash")
+        logger.info(f"GeminiGenerator initialized: {model or 'default'}")
+        return _generator_instance
+    except (ImportError, ValueError) as e:
+        logger.warning(f"GeminiGenerator not available: {e}")
+        return None
 
 
 def create_routes(app: Any, config: Config) -> Blueprint:
@@ -165,6 +195,168 @@ def create_routes(app: Any, config: Config) -> Blueprint:
             logger.error(f"Version endpoint error: {e}", exc_info=True)
             error = ErrorResponse(
                 error="Failed to retrieve version information",
+                code="SERVER_ERROR",
+                details={"message": str(e)},
+            )
+            return jsonify(error.model_dump()), 500
+
+
+    @bp.route("/generate", methods=["POST"])
+    @log_request
+    def generate() -> tuple:
+        """Generate text using Gemini and validate with HallucinationGuard.
+
+        Request body:
+            GenerateRequest with prompt, context, policy, domain, model, temperature, max_tokens
+
+        Returns:
+            GenerateResponse with generated_text, decision, latencies, and tier_results
+        """
+        overall_start = time.time()
+
+        try:
+            # Parse request
+            req_data = request.get_json()
+            if not req_data:
+                error = ErrorResponse(
+                    error="Request body must be valid JSON",
+                    code="BAD_REQUEST",
+                    details={"received": "null"},
+                )
+                return jsonify(error.model_dump()), 400
+
+            req = GenerateRequest(**req_data)
+
+            # Get generator instance
+            generator = get_generator(model=req.model)
+            if generator is None:
+                error = ErrorResponse(
+                    error="Gemini API not available. Set GOOGLE_API_KEY environment variable.",
+                    code="SERVICE_UNAVAILABLE",
+                    details={"required": "GOOGLE_API_KEY"},
+                )
+                logger.warning("Generate request received but Gemini not available")
+                return jsonify(error.model_dump()), 503
+
+            # Generate text
+            gen_start = time.time()
+            gen_result = generator.generate(
+                prompt=req.prompt,
+                context=req.context,
+                temperature=req.temperature or 0.7,
+                max_tokens=req.max_tokens or 1024,
+            )
+            gen_latency_ms = (time.time() - gen_start) * 1000
+
+            if gen_result["error"] is not None:
+                logger.error(f"Generation failed: {gen_result['error']}")
+                error = ErrorResponse(
+                    error=f"Text generation failed: {gen_result['error']}",
+                    code="GENERATION_ERROR",
+                    details={"model": gen_result["model"]},
+                )
+                return jsonify(error.model_dump()), 500
+
+            generated_text = gen_result["generated_text"]
+            if not generated_text:
+                error = ErrorResponse(
+                    error="Text generation produced empty output",
+                    code="GENERATION_ERROR",
+                    details={"model": gen_result["model"]},
+                )
+                return jsonify(error.model_dump()), 422
+
+            logger.debug(
+                f"Generated {len(generated_text)} chars in {gen_result['latency_ms']:.1f}ms"
+            )
+
+            # Validate generated text
+            policy = req.policy or "default"
+            guard = get_guard(policy=policy)
+
+            if guard is None:
+                error = ErrorResponse(
+                    error="HallucinationGuard not available",
+                    code="SERVER_ERROR",
+                    details={"policy": policy},
+                )
+                return jsonify(error.model_dump()), 500
+
+            val_start = time.time()
+            try:
+                decision = guard.validate(
+                    prompt=req.prompt,
+                    output=generated_text,
+                    context=req.context,
+                    domain=req.domain or config.DEFAULT_DOMAIN,
+                )
+            except IntentViolationError as e:
+                logger.warning(f"ArmorIQ enforcement in generate: {e.reason}")
+                error = ErrorResponse(
+                    error=f"Action enforcement failed: {e.reason}",
+                    code="ACTION_BLOCKED",
+                    details={"reason": e.reason},
+                )
+                return jsonify(error.model_dump()), 403
+
+            val_latency_ms = (time.time() - val_start) * 1000
+
+            # Build response
+            tier_results = None
+            if decision.validator_results:
+                tier_results = [
+                    ValidationTierResult(
+                        validator_name=vr.validator_name,
+                        score=round(vr.score, 4),
+                        passed=vr.passed,
+                        evidence=vr.evidence,
+                        latency_ms=round(vr.latency_ms, 2),
+                        error=vr.error,
+                    )
+                    for vr in decision.validator_results
+                ]
+
+            overall_latency_ms = (time.time() - overall_start) * 1000
+
+            response = GenerateResponse(
+                generated_text=generated_text,
+                decision=decision.decision,
+                risk_score=round(decision.risk_score, 4),
+                confidence=round(decision.confidence, 4),
+                evidence=decision.evidence,
+                latency_ms=GenerationLatency(
+                    generation_ms=round(gen_result["latency_ms"], 2),
+                    validation_ms=round(decision.latency_ms, 2),
+                    total_ms=round(overall_latency_ms, 2),
+                ),
+                tier_results=tier_results,
+                policy_name=decision.policy_name,
+                model=req.model or "gemini-2.5-flash",
+            )
+
+            logger.info(
+                f"Generation complete: decision={response.decision}, "
+                f"risk={response.risk_score:.3f}, "
+                f"gen_latency={gen_result['latency_ms']:.1f}ms, "
+                f"val_latency={decision.latency_ms:.1f}ms, "
+                f"total={overall_latency_ms:.1f}ms"
+            )
+
+            return jsonify(response.model_dump(exclude_none=True)), 200
+
+        except ValueError as e:
+            logger.warning(f"Generate input validation error: {e}")
+            error = ErrorResponse(
+                error=f"Invalid request: {str(e)}",
+                code="VALIDATION_ERROR",
+                details={"message": str(e)},
+            )
+            return jsonify(error.model_dump()), 422
+
+        except Exception as e:
+            logger.error(f"Generate endpoint error: {e}", exc_info=True)
+            error = ErrorResponse(
+                error="Text generation pipeline failed",
                 code="SERVER_ERROR",
                 details={"message": str(e)},
             )
