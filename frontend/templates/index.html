@@ -105,6 +105,16 @@
 
     </div>
 
+    <!-- Thinking Process Panel -->
+    <div class="thinking-panel">
+        <div class="thinking-header">
+            <i class="fas fa-microchip"></i> Thinking Process
+        </div>
+        <div class="thinking-logs" id="thinking-logs">
+            <div class="log-entry" style="color: var(--text-muted);">Waiting for request...</div>
+        </div>
+    </div>
+
     <script>
         const chatBody = document.getElementById('chat-body');
         const promptInput = document.getElementById('prompt');
@@ -227,8 +237,10 @@
                 }
             } catch (err) {
                 appendMessage('bot', `System Error: ${err.message}`);
+                eventSource.close();
             } finally {
                 loading.style.display = 'none';
+                eventSource.close(); // Ensure closure
             }
         }
 
