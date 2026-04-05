@@ -10,6 +10,7 @@ from typing import Any
 from flask import Flask, jsonify, request
 from pydantic import ValidationError
 
+from .config import Config
 from .schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -113,12 +114,13 @@ def setup_error_handlers(app: Flask) -> None:
 
 
 def setup_cors(app: Flask) -> None:
-    """Setup CORS headers for development."""
+    """Setup CORS headers for development based on configuration."""
 
     @app.after_request  # type: ignore
     def after_request(response: Any) -> Any:
         """Add CORS headers to all responses."""
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        cors_origin = app.config.get("CORS_ORIGIN", "http://localhost:3000")
+        response.headers["Access-Control-Allow-Origin"] = cors_origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return response

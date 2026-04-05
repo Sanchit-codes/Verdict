@@ -30,6 +30,7 @@ if __name__ == "__main__":
     print(f"   Policy: {config.DEFAULT_POLICY}")
     print(f"   Models preload: {config.PRELOAD_MODELS}")
     print(f"   Listening on {config.HOST}:{config.PORT}")
+    print(f"   CORS Origin: {config.CORS_ORIGIN}")
     print(f"\n   API Docs: http://{config.HOST}:{config.PORT}/api/docs")
     print(f"   Health: http://{config.HOST}:{config.PORT}/api/health")
     print()

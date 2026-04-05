@@ -18,6 +18,7 @@ class Config:
     PORT: int = int(os.getenv("PORT", "5000"))
     HOST: str = os.getenv("HOST", "0.0.0.0")
     WORKERS: int = int(os.getenv("WORKERS", "1"))
+    CORS_ORIGIN: str = os.getenv("CORS_ORIGIN", "http://localhost:3000")
 
     # HallucinationGuard config
     DEFAULT_POLICY: str = os.getenv("HG_DEFAULT_POLICY", "default")
