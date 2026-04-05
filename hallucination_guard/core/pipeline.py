@@ -177,8 +177,10 @@ class ValidationPipeline:
                 continue
 
             # Run validator with error handling
+            logger.debug(f"Pipeline: running validator '{validator_config.name}'...")
             result = self._run_validator(validator, input, validator_config.timeout_ms)
             results.append(result)
+            logger.debug(f"Pipeline: '{result.validator_name}' completed with score={result.score:.3f}, latency={result.latency_ms:.1f}ms")
 
             # Tier 0.5: Inject StructuredPrompt into ValidationInput for downstream use
             if validator_config.name == "prompt_structure":
