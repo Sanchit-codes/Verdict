@@ -158,6 +158,16 @@ class TestGuardInitialization:
 
         assert "nonexistent_policy_xyz" in str(exc_info.value)
 
+    def test_guard_init_thinking_callback(self):
+        """Test Guard initializes with thinking_callback."""
+        events = []
+        def cb(msg: str):
+            events.append(msg)
+            
+        guard = Guard(policy="default", thinking_callback=cb)
+        assert guard._thinking_cb is cb
+        assert guard.pipeline._thinking_cb is cb
+
     def test_guard_init_with_invalid_policy_type(self):
         """Test Guard raises error for invalid policy type."""
         with pytest.raises((PolicyLoadError, ValueError)):
@@ -465,4 +475,23 @@ class TestTraceExport:
         assert decision.validator_results is not None
         assert decision.latency_ms > 0.0
         assert decision.policy_name is not None
+
+    def test_planning_callback_emits_in_validate(self):
+        """Test that thinking_callback is called during validate()."""
+        events = []
+        def cb(msg: str):
+            events.append(msg)
+            
+        guard = Guard(policy="default", trace_enabled=False, thinking_callback=cb)
+        
+        decision = guard.validate(
+            prompt="What is ML?",
+            output="ML stands for machine learning.",
+            context="Machine learning is a subset of AI.",
+            domain="test",
+        )
+        
+        assert len(events) > 0
+        assert any("Running " in event for event in events)
+        assert any("Final Decision:" in event for event in events)
 
