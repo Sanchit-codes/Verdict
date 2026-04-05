@@ -16,54 +16,51 @@ HallucinationGuard validates AI-generated text using a fast, deterministic three
 - **Policy-Driven**: YAML-based policies for domain-specific tuning (RAG, chatbots, creative writing)
 - **ArmorIQ Integration**: Optional pre-execution intent enforcement layer
 
-## Quick Start
+## 🚀 Quick Start (5 Minutes)
 
-### Installation
-
-```bash
-# Install with all extras (recommended for development)
-pip install -e ".[gemini,langchain,observability,dev]"
-
-# Minimal runtime installation
-pip install hallucination-guard
-```
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and configure your environment:
+### For JavaScript/TypeScript Developers
 
 ```bash
-cp .env.example .env
-# Edit .env with your actual values
+# 1. Install Node SDK
+npm install guardly-node-sdk
+
+# 2. Start Flask API server (in another terminal)
+python server/run.py
+
+# 3. Validate your first output
+import { GuardlyClient } from 'guardly-node-sdk';
+
+const client = new GuardlyClient({ 
+  apiKey: 'your-api-key',
+  baseUrl: 'http://localhost:5000' 
+});
+
+const decision = await client.validate({
+  prompt: 'What is the capital of France?',
+  output: 'The capital of France is Paris.',
+  context: 'France is a country in Europe. Its capital is Paris.'
+});
+
+if (decision.decision === 'allow') {
+  console.log('✓ Output is safe');
+} else if (decision.decision === 'block') {
+  console.log('✗ Hallucination detected');
+}
 ```
 
-**Required for integrations:**
-- `GOOGLE_API_KEY`: Google AI API key for Gemini integration
-- `LANGFUSE_PUBLIC_KEY` & `LANGFUSE_SECRET_KEY`: For trace export to Langfuse
-
-**Optional SDK settings:**
-- `HG_DEFAULT_POLICY`: Default policy (default, rag_strict, chatbot, no_prompt_check)
-- `HG_DISABLE_HHEM`: Set to `true` for fast mode (heuristics + embeddings only)
-- `HG_LOG_LEVEL`: Logging verbosity (WARNING, INFO, DEBUG)
-
-**Development:**
-- `FLASK_DEBUG`: Enable Flask debug mode for frontend development
-
-See `.env.example` for complete configuration options.
-
-### Basic Usage
+### For Python Developers
 
 ```python
 from hallucination_guard import Guard
 
 # Initialize guard with a policy
-guard = Guard(policy="safe")  # Use "safe" for fast/reliable, "development" for ML model testing
+guard = Guard(policy="default")
 
 # Validate output
 decision = guard.validate(
     prompt="What is the capital of France?",
     output="The capital of France is Paris.",
-    context="France is a country in Europe. Its capital city is Paris.",
+    context="France is a country in Europe. Its capital is Paris.",
 )
 
 # Check decision
@@ -73,91 +70,173 @@ elif decision.decision == "block":
     print(f"✗ Blocked (risk={decision.risk_score:.2f})")
 ```
 
-### Testing Frontend
+### Full Getting Started Guide
 
-For development and testing, use the included web frontend:
+**→ [QUICKSTART.md](QUICKSTART.md)** — Complete 5-minute setup guide with:
+- Step-by-step installation for all package managers
+- Server startup and configuration
+- First validation in 3 different languages
+- Common patterns and troubleshooting
+
+### Installation
 
 ```bash
-# Install with frontend dependencies
-pip install -e ".[dev]"
+# Node.js SDK
+npm install guardly-node-sdk
 
-# Run the testing frontend
-cd frontend && python run.py
-
-# Or directly:
-python frontend/run.py
-```
-
-The frontend provides:
-- **Interactive prompt testing** with real-time validation
-- **Tier 0.5 visualization** showing prompt security analysis
-- **Policy comparison** across different configurations
-- **Example scenarios** for testing various attack vectors
-- **Detailed results** including risk scores, evidence, and latency
-
-Access at: `http://localhost:5000`
-
-### With Gemini Integration
-
-```python
-from hallucination_guard.integrations import GuardedGemini
-import google.generativeai as genai
-
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-base_model = genai.GenerativeModel("gemini-2.0-flash")
-
-# Wrap with guard (auto-retry on hallucinations)
-guarded = GuardedGemini(
-    model=base_model,
-    policy="rag_strict",
-    max_retries=2
-)
-
-# Generate with automatic validation
-response = guarded.generate(
-    prompt="Summarize this research paper.",
-    context=paper_text
-)
+# Python SDK (with all extras)
+pip install -e ".[gemini,langchain,observability,dev]"
 ```
 
 ## Documentation
 
-Comprehensive guides for deploying and using HallucinationGuard:
+Comprehensive guides for deploying and using HallucinationGuard across the full stack:
 
-- **[REST API Documentation](docs/REST_API.md)** — Complete API reference with examples
-  - All 5 endpoints with request/response schemas
-  - Error codes and status codes
-  - curl, Python, and JavaScript examples
-  - Rate limiting and best practices
+### Getting Started
 
-- **[Deployment Guide](docs/DEPLOYMENT.md)** — Production deployment instructions
-  - Flask development server setup
-  - Gunicorn configuration for production
-  - Nginx reverse proxy setup
-  - Docker and Docker Compose deployment
-  - Health checks and monitoring
-  - Kubernetes configuration
-  - Performance tuning and scaling
+- **[QUICKSTART.md](./QUICKSTART.md)** — First-time user guide (5 minutes)
+  - Step-by-step npm/pip installation
+  - Your first validation in 3 languages (TypeScript, JavaScript, Python)
+  - Common patterns and health checks
+  - Troubleshooting tips
 
-- **[Node.js SDK Usage](docs/NODE_SDK_USAGE.md)** — Complete Node.js SDK reference
-  - Installation and configuration
-  - All methods: validate, validateBatch, getPolicies, getVersion
-  - Error handling and retry configuration
-  - 5+ code examples (single, batch, RAG, error handling, etc.)
-  - TypeScript support and type definitions
-  - Best practices and environment variables
+### Integration & Deployment
 
-### Quick Links
+- **[SDK_INTEGRATION_GUIDE.md](./SDK_INTEGRATION_GUIDE.md)** — Complete stack integration (789 lines)
+  - Full architecture overview with data flow
+  - Node.js client configuration (all options documented)
+  - Flask server setup and environment variables
+  - Policy selection (default, rag_strict, chatbot)
+  - Batch validation (parallel vs. sequential)
+  - Deployment guides (Gunicorn, Docker, Kubernetes)
+  - Performance tuning table
 
-- **Examples**: See `examples/` for runnable code
-  - `flask_api_server.py` — Standalone Flask REST API
-  - `node_sdk_example.ts` — Node.js SDK demonstrations
-  - `gemini_rag_example.py` — Gemini integration
-  - `gemini_armoriq_example.py` — Two-layer validation stack
+- **[API_REFERENCE.md](./API_REFERENCE.md)** — REST API specification (757 lines)
+  - All 4 endpoints: `/api/validate`, `/api/batch_validate`, `/api/health`, `/api/version`
+  - Complete request/response schemas with examples
+  - Error codes and decision types
+  - Built-in policy specifications
+  - Rate limiting and timeout specs
+  - curl, TypeScript, and Python examples for all endpoints
+
+### SDKs & Examples
+
+- **[guardly-node-sdk/USAGE.md](./guardly-node-sdk/USAGE.md)** — Node.js SDK reference (889 lines)
+  - Installation (npm, yarn, pnpm)
+  - Configuration with all options
+  - Single validation (basic, with context, with policy, with domain, with refinement)
+  - Batch validation (parallel and sequential)
+  - Retry configuration (strategies: aggressive, conservative, realtime)
+  - Error handling (GuardlyError, GuardlyNetworkError, GuardlyApiError, GuardlyValidationError)
+  - Type reference (ValidationInput, ValidationDecision, TierResult, BatchValidationResult)
+  - Best practices and production patterns
+
+- **[EXAMPLES.md](./EXAMPLES.md)** — Real-world integration examples (935 lines)
+  - Example 1: Simple chat message validation
+  - Example 2: Batch processing documents with error recovery
+  - Example 3: RAG system integration with LangChain
+  - Example 4: Custom retry logic and adaptive timeouts
+  - Example 5: Error handling and recovery strategies
+  - Example 6: Monitoring, logging, and observability (OpenTelemetry, Langfuse)
 
 ---
 
-## Architecture
+## Full Stack Architecture
+
+HallucinationGuard consists of three integrated layers working together to prevent AI hallucinations:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Client Applications                            │
+│  (Web, Mobile, Backend, ChatBot, RAG System, LLM Agent)         │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ HTTP REST
+                     ↓
+┌─────────────────────────────────────────────────────────────────┐
+│         Layer 2: Flask REST API Server (Python)                 │
+│  Wraps SDK, provides 4 HTTP endpoints with authentication       │
+│                                                                   │
+│  ╔─────────────────────────────────────────────────────────┐   │
+│  ║  POST /api/validate              Single validation      ║   │
+│  ║  POST /api/batch_validate        Parallel/sequential    ║   │
+│  ║  GET /api/health                 Health + models status ║   │
+│  ║  GET /api/version                Version information    ║   │
+│  ╚─────────────────────────────────────────────────────────┘   │
+└────────────┬─────────────────────────────────────────────────────┘
+             │ Direct Python API
+             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│      Layer 1: HallucinationGuard Python SDK (Core)               │
+│  Pure Python validation engine - no external dependencies       │
+│                                                                   │
+│  ╔──────────────────────────────────────────────────────────┐  │
+│  ║ Tier 1: Heuristics (<5ms)                                ║  │
+│  ║ ├─ context_coverage_ratio                                ║  │
+│  ║ ├─ entity_overlap_check                                  ║  │
+│  ║ └─ length_anomaly_check                                  ║  │
+│  ║                                                            ║  │
+│  ║ Tier 2: Embedding Similarity (<30ms)                     ║  │
+│  ║ └─ all-MiniLM-L6-v2 cosine similarity                    ║  │
+│  ║                                                            ║  │
+│  ║ Tier 3: HHEM Classifier (<80ms)                          ║  │
+│  ║ └─ vectara/hallucination_evaluation_model                ║  │
+│  ║                                                            ║  │
+│  ║ Decision Engine: Weighted aggregation → decision         ║  │
+│  ╚──────────────────────────────────────────────────────────┘  │
+└────────────┬─────────────────────────────────────────────────────┘
+             │
+             ↓
+┌─────────────────────────────────────────────────────────────────┐
+│            Layer 3: Node.js/TypeScript SDK Client                │
+│  Lightweight wrapper around Flask API with typed interfaces     │
+│                                                                   │
+│  ╔──────────────────────────────────────────────────────────┐  │
+│  ║ GuardlyClient                                             ║  │
+│  ║ ├─ validate()        → Single validation                 ║  │
+│  ║ ├─ batchValidate()   → Parallel/sequential batch         ║  │
+│  ║ ├─ getHealth()       → Health check                      ║  │
+│  ║ └─ getVersion()      → Version info                      ║  │
+│  ║                                                            ║  │
+│  ║ Features:                                                  ║  │
+│  ║ • Exponential backoff retry logic                         ║  │
+│  ║ • Comprehensive error handling                            ║  │
+│  ║ • Full TypeScript support with types                      ║  │
+│  ║ • Graceful degradation (optional abstain on error)        ║  │
+│  ╚──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Layer Breakdown
+
+| Layer | Component | Tech | Purpose | Latency |
+|-------|-----------|------|---------|---------|
+| **1** | HallucinationGuard SDK | Python 3.10+ | Core validation engine | p95 < 100ms |
+| **2** | Flask REST API | Python + Flask | HTTP API wrapper + middleware | +10-20ms |
+| **3** | guardly-node-sdk | TypeScript/Node.js | Client library + retry logic | +network latency |
+
+### Communication Flow
+
+1. **Client** (web/mobile/backend) sends validation request via HTTP to Layer 2
+2. **Flask API Server** (Layer 2) validates request, calls Layer 1 SDK
+3. **HallucinationGuard SDK** (Layer 1) runs 3-tier cascade:
+   - Tier 1 (fast) → if clear, return decision
+   - Tier 2 (medium) → if unclear, run embedding similarity
+   - Tier 3 (slow) → if still unclear, run HHEM classifier
+4. **Decision Engine** aggregates scores, returns decision (allow/block/regenerate/abstain)
+5. **Flask API** returns structured JSON response to client
+6. **Node.js SDK** (Layer 3) receives response, handles retries and errors
+
+### Key Properties
+
+- **Zero mandatory server infrastructure**: Layer 1 is pure Python, works offline
+- **Graceful degradation**: Any layer can fail without crashing the pipeline
+- **CPU-optimized**: All models run on CPU (no GPU required)
+- **Policy-driven**: All validation rules configurable via YAML
+- **Vendor-neutral**: Works with any LLM (Gemini, OpenAI, local models, etc.)
+
+---
+
+## Validation Architecture
 
 ```
 User Prompt
