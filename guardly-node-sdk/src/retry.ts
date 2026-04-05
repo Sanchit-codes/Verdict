@@ -1,4 +1,4 @@
-import { GuardlyNetworkError, GuardlyApiError } from './errors';
+import { GuardlyNetworkError, GuardlyApiError } from './errors.js';
 
 /**
  * Configuration for exponential backoff retry strategy

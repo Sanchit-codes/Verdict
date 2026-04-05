@@ -161,6 +161,16 @@ export class GuardlyClient {
     const response = (await this.makeRequest('/version', {})) as Record<string, unknown>;
     return (response?.version as string) || 'unknown';
   }
+  /**
+   * Get available policies
+   * @returns Array of policy objects with metadata
+   */
+  public async getPolicies(): Promise<Array<Record<string, unknown>>> {
+    const response = (await this.makeRequest('/policies', {})) as Record<string, unknown>;
+    return (response?.policies as Array<Record<string, unknown>>) || [];
+  }
+
+
 
   /**
    * Validate input object before sending to API
