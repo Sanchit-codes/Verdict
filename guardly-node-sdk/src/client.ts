@@ -2,6 +2,10 @@ import {
   GuardlyClientConfig,
   ValidationInput,
   ValidationDecision,
+  RetryConfig,
+  BatchValidationRequest,
+  BatchValidationResult,
+  BatchResultItem,
 } from './types.js';
 import {
   GuardlyError,
@@ -10,6 +14,7 @@ import {
   GuardlyValidationError,
   ApiErrorResponse,
 } from './errors.js';
+import { ExponentialBackoff, isNetworkError } from './retry.js';
 
 /**
  * Guardly Client for LLM hallucination detection
@@ -33,6 +38,8 @@ export class GuardlyClient {
   private readonly timeout: number;
   private readonly gracefulErrorHandling: boolean;
   private readonly userAgent: string;
+  private readonly retryConfig: RetryConfig;
+  private readonly backoff: ExponentialBackoff;
 
   /**
    * Initialize a new Guardly client
@@ -57,6 +64,14 @@ export class GuardlyClient {
     this.gracefulErrorHandling = config.gracefulErrorHandling ?? false;
     this.userAgent =
       config.userAgent || 'guardly-node-sdk/1.0.0 (Node.js ' + process.version + ')';
+    this.retryConfig = config.retryConfig || {
+      maxAttempts: 3,
+      initialDelayMs: 100,
+      backoffMultiplier: 2,
+      maxDelayMs: 10000,
+      jitterFactor: 0.1,
+    };
+    this.backoff = new ExponentialBackoff(this.retryConfig);
   }
 
   /**
@@ -75,7 +90,10 @@ export class GuardlyClient {
     this.validateInput(input);
 
     try {
-      const response = await this.makeRequest('/validate', input);
+      const response = await this.backoff.execute(
+        () => this.makeRequest('/validate', input),
+        isNetworkError
+      );
       return response as ValidationDecision;
     } catch (error) {
       if (this.gracefulErrorHandling) {
@@ -84,6 +102,39 @@ export class GuardlyClient {
           error
         );
         return this.createAbstainDecision();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Validate a batch of LLM outputs for hallucinations
+   *
+   * @param batch Batch validation request with array of validation inputs (1-100 items)
+   * @returns A promise that resolves to a BatchValidationResult with all results
+   * @throws GuardlyValidationError if batch is invalid (empty or >100 items)
+   * @throws GuardlyApiError if the API returns an error
+   * @throws GuardlyNetworkError if network connectivity fails
+   */
+  public async validateBatch(
+    batch: BatchValidationRequest
+  ): Promise<BatchValidationResult> {
+    // Validate batch
+    this.validateBatchRequest(batch);
+
+    try {
+      const response = await this.backoff.execute(
+        () => this.makeRequest('/validate/batch', batch),
+        isNetworkError
+      );
+      return response as BatchValidationResult;
+    } catch (error) {
+      if (this.gracefulErrorHandling) {
+        console.warn(
+          '[Guardly] Batch validation failed with graceful error handling enabled, returning abstain batch',
+          error
+        );
+        return this.createAbstainBatch(batch);
       }
       throw error;
     }
@@ -166,6 +217,48 @@ export class GuardlyClient {
         'use_refinement must be a boolean'
       );
     }
+  }
+
+  /**
+   * Validate batch request before sending to API
+   * @private
+   */
+  private validateBatchRequest(batch: BatchValidationRequest): void {
+    if (
+      !batch.requests ||
+      !Array.isArray(batch.requests) ||
+      batch.requests.length === 0
+    ) {
+      throw new GuardlyValidationError(
+        'requests must be a non-empty array',
+        'requests',
+        'requests array must contain at least 1 validation request'
+      );
+    }
+
+    if (batch.requests.length > 100) {
+      throw new GuardlyValidationError(
+        'requests array exceeds maximum size',
+        'requests',
+        'requests array must not exceed 100 items'
+      );
+    }
+
+    // Validate each request in the batch
+    batch.requests.forEach((request, index) => {
+      try {
+        this.validateInput(request);
+      } catch (error) {
+        if (error instanceof GuardlyValidationError) {
+          throw new GuardlyValidationError(
+            `Validation failed for request at index ${index}: ${error.message}`,
+            `requests[${index}].${error.field || 'input'}`,
+            error.details
+          );
+        }
+        throw error;
+      }
+    });
   }
 
   /**
@@ -285,6 +378,30 @@ export class GuardlyClient {
       output: undefined,
       latency_ms: 0,
       policy_name: 'unknown',
+    };
+  }
+
+  /**
+   * Create an abstain batch response for graceful error handling
+   * @private
+   */
+  private createAbstainBatch(batch: BatchValidationRequest): BatchValidationResult {
+    const abstainItems: BatchResultItem[] = batch.requests.map(() => ({
+      decision: 'abstain',
+      risk_score: 0.5,
+      confidence: 0,
+      evidence: 'Batch validation service unavailable. Decision deferred due to graceful error handling.',
+      latency_ms: 0,
+    }));
+
+    return {
+      batch_id: `batch_${Date.now()}_abstain`,
+      total_requests: batch.requests.length,
+      successful_validations: 0,
+      failed_validations: batch.requests.length,
+      results: abstainItems,
+      batch_latency_ms: 0,
+      errors: ['Batch validation service unavailable'],
     };
   }
 }
