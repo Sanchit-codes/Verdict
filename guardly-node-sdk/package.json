@@ -1,0 +1,41 @@
+{
+  "name": "guardly-node-sdk",
+  "version": "1.0.0",
+  "description": "Professional SDK for LLM hallucination detection via Guardly REST API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:cjs": "tsc --module commonjs --outDir dist && mv dist/index.js dist/index.cjs",
+    "type-check": "tsc --noEmit",
+    "test": "node --experimental-modules dist/test.js",
+    "test:dev": "tsx src/test.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "hallucination",
+    "detection",
+    "llm",
+    "validation",
+    "ai",
+    "safety"
+  ],
+  "author": "Guardly",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsx": "^4.1.0",
+    "typescript": "^5.3.0"
+  }
+}
