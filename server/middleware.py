@@ -121,8 +121,10 @@ def setup_cors(app: Flask) -> None:
         """Add CORS headers to all responses."""
         cors_origin = app.config.get("CORS_ORIGIN", "http://localhost:3000")
         response.headers["Access-Control-Allow-Origin"] = cors_origin
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "3600"
         return response
 
     @app.route("/<path:path>", methods=["OPTIONS"])  # type: ignore
