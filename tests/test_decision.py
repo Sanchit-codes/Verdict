@@ -301,7 +301,7 @@ def test_make_decision_allow_faithful(sample_validation_result_passed, default_p
     decision = make_decision(results, aggregated_score, default_policy, 50.0)
     
     assert decision.decision == "allow"
-    assert decision.risk_score == 0.15
+    assert decision.risk_score == pytest.approx(0.15)
     assert decision.policy_name == "default"
 
 
