@@ -21,7 +21,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getGuardedClient } from '@/lib/guardly-client';
-import type { ValidationResult } from '@/types/guardly';
+import type { ValidationResult, GenerationResult } from '@/types/guardly';
 
 /**
  * Hook state returned by useGuardly
@@ -34,6 +34,9 @@ export interface UseGuardlyState {
   confidence: number | null;
   evidence: string | null;
   latencyMs: number | null;
+  isGenerating: boolean;
+  generationLatencyMs: number | null;
+  validationLatencyMs: number | null;
 }
 
 /**
@@ -55,6 +58,9 @@ export function useGuardly(
     confidence: null,
     evidence: null,
     latencyMs: null,
+    isGenerating: false,
+    generationLatencyMs: null,
+    validationLatencyMs: null,
   });
 
   const clientRef = useRef(getGuardedClient());
@@ -101,12 +107,15 @@ export function useGuardly(
         // Update state with result
         setState({
           isValidating: false,
+          isGenerating: false,
           decision: decision.decision,
           error: null,
           riskScore: decision.risk_score,
           confidence: decision.confidence,
           evidence: decision.evidence,
           latencyMs: decision.latency_ms ?? null,
+          generationLatencyMs: null,
+          validationLatencyMs: null,
         });
 
         return decision;
@@ -129,6 +138,77 @@ export function useGuardly(
     []
   );
 
+
+
+  /**
+   * Generate text with Gemini and validate it
+   *
+   * @param prompt - User prompt or query
+   * @param context - Optional reference context for fact-checking
+   * @returns Promise resolving to the generation result with validation, or null on error
+   *
+   * @remarks
+   * This method combines generation and validation in a single API call.
+   * It updates the hook state with generation/validation latencies and decision.
+   */
+  const generateAndValidate = useCallback(
+    async (
+      prompt: string,
+      context?: string
+    ): Promise<GenerationResult | null> => {
+      setState((prev) => ({
+        ...prev,
+        isGenerating: true,
+        error: null,
+        decision: null,
+        generationLatencyMs: null,
+        validationLatencyMs: null,
+      }));
+
+      try {
+        const client = clientRef.current;
+        const result = await client.generateAndValidate(
+          prompt,
+          context,
+          policyRef.current
+        );
+
+        // Update state with result
+        setState({
+          isValidating: false,
+          isGenerating: false,
+          decision: result.decision,
+          error: null,
+          riskScore: result.risk_score,
+          confidence: result.confidence,
+          evidence: result.evidence,
+          latencyMs: result.latency.total_ms,
+          generationLatencyMs: result.latency.generation_ms,
+          validationLatencyMs: result.latency.validation_ms,
+        });
+
+        return result;
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error ? err.message : 'Generation failed';
+
+        setState((prev) => ({
+          ...prev,
+          isGenerating: false,
+          error: errorMsg,
+          decision: 'abstain',
+          riskScore: 0.5,
+          confidence: 0,
+          evidence: 'Generation unavailable',
+          generationLatencyMs: null,
+          validationLatencyMs: null,
+        }));
+
+        return null;
+      }
+    },
+    []
+  );
   /**
    * Set the validation policy for subsequent validations
    */
@@ -165,12 +245,16 @@ export function useGuardly(
       confidence: null,
       evidence: null,
       latencyMs: null,
+      isGenerating: false,
+      generationLatencyMs: null,
+      validationLatencyMs: null,
     });
   }, []);
 
   return {
     ...state,
     validate,
+    generateAndValidate,
     setPolicy,
     setApiEndpoint,
     getApiEndpoint,

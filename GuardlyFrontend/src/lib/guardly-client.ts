@@ -26,6 +26,7 @@ import type {
   ValidationInput,
   ValidationDecision,
 } from 'guardly-node-sdk';
+import type { GenerationResult, LatencyBreakdown } from '@/types/guardly';
 
 /**
  * Health check status response from the backend
@@ -166,6 +167,90 @@ export class GuardedClient {
     }
   }
 
+
+
+  /**
+   * Generate text with Gemini and validate in one call
+   *
+   * @param prompt User prompt or query
+   * @param context Optional reference context for fact-checking
+   * @param policy Optional policy name (defaults to "default")
+   * @returns Promise resolving to a GenerationResult with generated text + validation decision
+   *
+   * @remarks
+   * This method combines generation and validation in a single endpoint call.
+   * It handles HTTP errors gracefully and returns a safe fallback result if
+   * the API is unreachable or returns invalid data.
+   *
+   * @example
+   * ```typescript
+   * const result = await client.generateAndValidate(
+   *   'What is the capital of France?',
+   *   'France is in Europe with capital Paris.',
+   *   'default'
+   * );
+   *
+   * if (result.decision === 'allow') {
+   *   console.log('✓ Generated text is safe:', result.generated_text);
+   * } else if (result.decision === 'block') {
+   *   console.log('✗ Hallucination detected:', result.evidence);
+   * }
+   * ```
+   */
+  public async generateAndValidate(
+    prompt: string,
+    context?: string,
+    policy?: string
+  ): Promise<GenerationResult> {
+    const startTime = performance.now();
+
+    try {
+      const response = await this.makeRequest<{
+        generated_text: string;
+        decision: 'allow' | 'block' | 'regenerate' | 'abstain';
+        risk_score: number;
+        confidence: number;
+        evidence: string;
+        latency_ms?: { generation_ms: number; validation_ms: number; total_ms: number };
+        policy_name?: string;
+      }>('/generate', {
+        prompt,
+        context,
+        policy,
+      });
+
+      // Parse latency breakdown from response, or calculate from client-side timing
+      const endTime = performance.now();
+      const totalClientTime = endTime - startTime;
+      
+      const latency: LatencyBreakdown = response.latency_ms
+        ? {
+            generation_ms: response.latency_ms.generation_ms,
+            validation_ms: response.latency_ms.validation_ms,
+            total_ms: response.latency_ms.total_ms,
+          }
+        : {
+            // Fallback: use client-side timing
+            generation_ms: totalClientTime,
+            validation_ms: 0,
+            total_ms: totalClientTime,
+          };
+
+      return {
+        generated_text: response.generated_text,
+        decision: response.decision,
+        risk_score: response.risk_score,
+        confidence: response.confidence,
+        evidence: response.evidence,
+        latency,
+        policy_name: response.policy_name,
+      };
+    } catch (error) {
+      this.logError('Generation and validation failed', error);
+      // Return a safe fallback result
+      return this.getFallbackGenerationResult('Network error during generation');
+    }
+  }
   /**
    * Check backend health status
    *
@@ -179,9 +264,9 @@ export class GuardedClient {
     try {
       const response = await this.makeRequest<HealthStatus>('/health', null);
       return {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
         ...response,
+        status: response.status || 'healthy',
+        timestamp: response.timestamp || new Date().toISOString(),
       };
     } catch (error) {
       this.logError('Health check failed', error);
@@ -255,6 +340,31 @@ export class GuardedClient {
       latency_ms: 0,
     };
   }
+
+  /**
+   * Return a safe fallback generation result when generation or validation fails
+   *
+   * @param evidence Optional evidence message for the decision
+   * @returns A GenerationResult with 'abstain' decision and empty text
+   * @internal
+   */
+  private getFallbackGenerationResult(
+    evidence = 'Unable to generate or validate'
+  ): GenerationResult {
+    return {
+      generated_text: '',
+      decision: 'abstain',
+      risk_score: 0.5,
+      confidence: 0,
+      evidence,
+      latency: {
+        generation_ms: 0,
+        validation_ms: 0,
+        total_ms: 0,
+      },
+    };
+  }
+
 
   /**
    * Log an error message to console if logging is enabled
