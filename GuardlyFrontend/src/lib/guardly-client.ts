@@ -7,7 +7,7 @@
  * @example
  * ```typescript
  * const client = new GuardedClient({
- *   apiBaseUrl: 'http://localhost:5000/api'
+ *   apiBaseUrl: 'http://localhost:5500/api'
  * });
  *
  * const decision = await client.validateMessage(
@@ -42,7 +42,7 @@ export interface HealthStatus {
  * Configuration for the Guardly API client
  */
 export interface GuardedClientConfig {
-  /** Base URL of the Guardly API (e.g., http://localhost:5000/api) */
+  /** Base URL of the Guardly API (e.g., http://localhost:5500/api) */
   apiBaseUrl?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
@@ -74,8 +74,8 @@ export class GuardedClient {
    * @param config Optional configuration object
    */
   constructor(config: GuardedClientConfig = {}) {
-    // Default to localhost:5000/api if not provided
-    const defaultUrl = 'http://localhost:5000/api';
+    // Default to localhost:5500/api if not provided
+    const defaultUrl = 'http://localhost:5500/api';
     
     // Try to get from localStorage if available (browser context)
     let apiBaseUrl = config.apiBaseUrl;

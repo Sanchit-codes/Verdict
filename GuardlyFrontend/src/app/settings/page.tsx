@@ -6,7 +6,7 @@ import { getGuardedClient } from '@/lib/guardly-client';
 import type { GuardlySettings, HealthStatus } from '@/types/guardly';
 
 const DEFAULT_SETTINGS: GuardlySettings = {
-  apiEndpoint: 'http://localhost:5000/api',
+  apiEndpoint: 'http://localhost:5500/api',
   validationPolicy: 'default',
   validationEnabled: true,
 };
@@ -166,12 +166,12 @@ export default function SettingsPage() {
                 id="apiEndpoint"
                 value={settings.apiEndpoint}
                 onChange={(e) => handleApiEndpointChange(e.target.value)}
-                placeholder="http://localhost:5000/api"
+                placeholder="http://localhost:5500/api"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <p className="mt-2 text-sm text-gray-600">
                 The URL where the Guardly validation backend is running. Default is
-                localhost:5000/api.
+                localhost:5500/api.
               </p>
             </div>
 

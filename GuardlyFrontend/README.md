@@ -16,7 +16,7 @@ npm install
 import { GuardedClient } from './src/lib/guardly-client.js';
 
 const client = new GuardedClient({
-  apiBaseUrl: 'http://localhost:5000/api'
+  apiBaseUrl: 'http://localhost:5500/api'
 });
 
 const decision = await client.validateMessage(
@@ -39,7 +39,7 @@ import { getGuardedClient } from './src/lib/guardly-client.js';
 
 // Get the singleton instance
 const client = getGuardedClient({
-  apiBaseUrl: 'http://localhost:5000/api'
+  apiBaseUrl: 'http://localhost:5500/api'
 });
 
 // Subsequent calls return the same instance
@@ -79,7 +79,7 @@ new GuardedClient(config?: GuardedClientConfig)
 ```
 
 **Options:**
-- `apiBaseUrl?: string` - Base URL of the Guardly API (default: `http://localhost:5000/api`)
+- `apiBaseUrl?: string` - Base URL of the Guardly API (default: `http://localhost:5500/api`)
 - `timeout?: number` - Request timeout in milliseconds (default: `30000`)
 - `logErrors?: boolean` - Whether to log errors to console (default: `true`)
 

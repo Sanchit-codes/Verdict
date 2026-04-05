@@ -38,7 +38,7 @@ if __name__ == "__main__":
     # Run Flask app
     app.run(
         host=config.HOST,
-        port=config.PORT,
+        port=5500,
         debug=config.DEBUG,
         use_reloader=False,  # Preserve model cache
     )
