@@ -100,6 +100,21 @@ Comprehensive guides for deploying and using HallucinationGuard across the full 
   - Common patterns and health checks
   - Troubleshooting tips
 
+### Gemini Generation + Validation
+
+- **[GEMINI_SETUP.md](./GEMINI_SETUP.md)** — Gemini integration guide (5 minutes)
+  - Get a free Google API key (15 req/min free tier)
+  - Install with Gemini support: `pip install hallucination-guard[gemini]`
+  - Generate text with Gemini 2.5 Flash, validate with HallucinationGuard 3-tier cascade
+  - Complete code example showing faithful vs. hallucinated outputs
+  - Troubleshooting (API quota, latency, model downloads)
+
+- **[gemini_validation_demo.py](./examples/gemini_validation_demo.py)** — Standalone demo script
+  - Shows full generate → validate → decide flow
+  - 3 demo cases: faithful output, hallucination detection, ambiguous flagging
+  - Policy configuration display with validator details
+  - Rich terminal output with decision colors and evidence
+
 ### Integration & Deployment
 
 - **[SDK_INTEGRATION_GUIDE.md](./SDK_INTEGRATION_GUIDE.md)** — Complete stack integration (789 lines)
