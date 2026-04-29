@@ -5,6 +5,9 @@ __pycache__/
 # Node modules (at any level)
 node_modules/
 **/node_modules/
+# Next.js
+.next/
+**/.next/
 # C extensions
 *.so
 
