@@ -3,20 +3,20 @@
 import os
 import pytest
 
-from hallucination_guard.core.exceptions import (
+from verdict.core.exceptions import (
     HallucinationBlockedError,
     HallucinationGuardError,
     PolicyLoadError,
     ValidationTimeoutError,
 )
-from hallucination_guard.core.guard import Guard
-from hallucination_guard.policy.schema import PolicyConfig
+from verdict.core.guard import Guard
+from verdict.policy.schema import PolicyConfig
 
 
 class TestExceptions:
     """Test custom exception classes."""
 
-    def test_hallucination_guard_error_base(self):
+    def test_verdict_error_base(self):
         """Test base exception can be raised and caught."""
         with pytest.raises(HallucinationGuardError):
             raise HallucinationGuardError("Test error")

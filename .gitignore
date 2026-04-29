@@ -2,7 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+# Node modules (at any level)
+node_modules/
+**/node_modules/
+# Next.js
+.next/
+**/.next/
 # C extensions
 *.so
 

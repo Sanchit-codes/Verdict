@@ -1,4 +1,4 @@
-"""Unit tests for hallucination_guard/core/trace.py"""
+"""Unit tests for verdict/core/trace.py"""
 
 import json
 import logging
@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from hallucination_guard.core.trace import (
+from verdict.core.trace import (
     GuardTrace,
     _export_to_langfuse,
     export_trace,
@@ -25,7 +25,7 @@ class TestGuardTrace:
         """Test creating a GuardTrace with minimal fields."""
         trace = GuardTrace(output="Test output")
 
-        assert trace.name == "hallucination_guard_validation"
+        assert trace.name == "verdict_validation"
         assert trace.output == "Test output"
         assert trace.input == {}
         assert trace.metadata == {}
@@ -38,7 +38,7 @@ class TestGuardTrace:
         trace = GuardTrace(
             id="test-id-123",
             timestamp="2024-04-04T12:00:00+00:00",
-            name="hallucination_guard_validation",
+            name="verdict_validation",
             input={"prompt": "Test prompt", "context": "Test context"},
             output="Test output",
             metadata={"decision": "allow", "risk_score": 0.15},
@@ -170,7 +170,7 @@ class TestExportTrace:
                 line = f.readline()
                 data = json.loads(line)
                 assert data["output"] == "Test output"
-                assert data["name"] == "hallucination_guard_validation"
+                assert data["name"] == "verdict_validation"
 
     def test_export_trace_appends_to_existing_jsonl(self) -> None:
         """Test that export_trace appends to existing JSONL file."""
@@ -217,13 +217,13 @@ class TestExportTrace:
                 assert jsonl_path.exists()
 
     def test_export_trace_uses_default_home_directory(self) -> None:
-        """Test that export_trace uses ~/.hallucination_guard/traces/ by default."""
+        """Test that export_trace uses ~/.verdict/traces/ by default."""
         trace = GuardTrace(output="Test")
 
         # Mock the home directory
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_home = Path(tmpdir)
-            with mock.patch("hallucination_guard.core.trace.Path.home") as mock_path_home:
+            with mock.patch("verdict.core.trace.Path.home") as mock_path_home:
                 mock_path_home.return_value = mock_home
 
                 # Remove HG_TRACE_DIR to test default behavior
@@ -231,10 +231,10 @@ class TestExportTrace:
                     if "HG_TRACE_DIR" in os.environ:
                         del os.environ["HG_TRACE_DIR"]
 
-                    export_trace(trace, trace_dir=str(mock_home / ".hallucination_guard" / "traces"))
+                    export_trace(trace, trace_dir=str(mock_home / ".verdict" / "traces"))
 
                     expected_dir = (
-                        mock_home / ".hallucination_guard" / "traces"
+                        mock_home / ".verdict" / "traces"
                     )
                     assert expected_dir.exists()
 
@@ -246,7 +246,7 @@ class TestExportTrace:
         with mock.patch("builtins.open", side_effect=IOError("Permission denied")):
             # Should not raise, but log a warning
             with mock.patch.object(
-                logging.getLogger("hallucination_guard.core.trace"),
+                logging.getLogger("verdict.core.trace"),
                 "warning",
             ) as mock_log:
                 export_trace(trace, trace_dir="/tmp")
@@ -295,7 +295,7 @@ class TestExportToLangfuse:
                 del os.environ["LANGFUSE_SECRET_KEY"]
 
             with mock.patch.object(
-                logging.getLogger("hallucination_guard.core.trace"),
+                logging.getLogger("verdict.core.trace"),
                 "debug",
             ) as mock_debug:
                 _export_to_langfuse(trace)
@@ -304,7 +304,7 @@ class TestExportToLangfuse:
                     "not configured" in str(call) for call in mock_debug.call_args_list
                 )
 
-    @mock.patch("hallucination_guard.core.trace.logger")
+    @mock.patch("verdict.core.trace.logger")
     def test_export_to_langfuse_handles_import_error(
         self, mock_logger: mock.Mock
     ) -> None:
@@ -321,7 +321,7 @@ class TestExportToLangfuse:
             # Simulate langfuse not being installed by raising ImportError
             # when trying to import it
             with mock.patch(
-                "hallucination_guard.core.trace.Langfuse",
+                "verdict.core.trace.Langfuse",
                 side_effect=ImportError("No module named 'langfuse'"),
             ):
                 # Need to use a different approach - test the except block
@@ -329,7 +329,7 @@ class TestExportToLangfuse:
                 # Should warn about the error
                 mock_logger.warning.assert_called()
 
-    @mock.patch("hallucination_guard.core.trace.logger")
+    @mock.patch("verdict.core.trace.logger")
     def test_export_to_langfuse_handles_api_error(
         self, mock_logger: mock.Mock
     ) -> None:
@@ -345,14 +345,14 @@ class TestExportToLangfuse:
         ):
             # Mock Langfuse initialization to raise an error
             with mock.patch(
-                "hallucination_guard.core.trace.Langfuse",
+                "verdict.core.trace.Langfuse",
                 side_effect=Exception("API error"),
             ):
                 _export_to_langfuse(trace)
                 # Should warn about export failure
                 mock_logger.warning.assert_called()
 
-    @mock.patch("hallucination_guard.core.trace.Langfuse")
+    @mock.patch("verdict.core.trace.Langfuse")
     def test_export_to_langfuse_success(self, mock_langfuse_class: mock.Mock) -> None:
         """Test successful Langfuse export."""
         mock_client = mock.Mock()
@@ -374,7 +374,7 @@ class TestExportToLangfuse:
             },
         ):
             with mock.patch.object(
-                logging.getLogger("hallucination_guard.core.trace"),
+                logging.getLogger("verdict.core.trace"),
                 "debug",
             ) as mock_debug:
                 _export_to_langfuse(trace)
@@ -387,11 +387,11 @@ class TestExportToLangfuse:
                 # Verify trace was passed to client.trace()
                 mock_client.trace.assert_called_once()
                 call_kwargs = mock_client.trace.call_args[1]
-                assert call_kwargs["name"] == "hallucination_guard_validation"
+                assert call_kwargs["name"] == "verdict_validation"
                 assert call_kwargs["output"] == "Test output"
                 assert call_kwargs["trace_id"] == "trace-123"
 
-    @mock.patch("hallucination_guard.core.trace.Langfuse")
+    @mock.patch("verdict.core.trace.Langfuse")
     def test_export_to_langfuse_passes_all_fields(
         self, mock_langfuse_class: mock.Mock
     ) -> None:
@@ -418,7 +418,7 @@ class TestExportToLangfuse:
             _export_to_langfuse(trace)
 
             call_kwargs = mock_client.trace.call_args[1]
-            assert call_kwargs["name"] == "hallucination_guard_validation"
+            assert call_kwargs["name"] == "verdict_validation"
             assert call_kwargs["input"] == trace.input
             assert call_kwargs["output"] == "Output text"
             assert call_kwargs["metadata"] == trace.metadata
@@ -475,7 +475,7 @@ class TestIntegration:
 
             # Mock datetime to return different dates
             with mock.patch(
-                "hallucination_guard.core.trace.datetime"
+                "verdict.core.trace.datetime"
             ) as mock_datetime:
                 # First export uses current date
                 mock_datetime.now.return_value = datetime(

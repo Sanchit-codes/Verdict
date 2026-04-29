@@ -5,7 +5,7 @@
   "pythonPlatform": "Darwin",
   "typeCheckingMode": "basic",
   "include": [
-    "hallucination_guard",
+    "verdict",
     "tests",
     "examples"
   ],

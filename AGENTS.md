@@ -78,8 +78,8 @@ Tool/API Execution
 ### Directory Structure
 
 ```
-hallucination-guard/
-├── hallucination_guard/       # Main package
+verdict/
+├── verdict/       # Main package
 │   ├── core/                  # Core validation engine
 │   │   ├── guard.py           # Main Guard class (public API)
 │   │   ├── pipeline.py        # 3-tier cascade orchestrator
@@ -126,7 +126,7 @@ hallucination-guard/
 ### Key Files
 
 #### Core Engine
-- **`hallucination_guard/__init__.py`**: Public API surface—exports `Guard`, `GuardDecision`, custom exceptions
+- **`verdict/__init__.py`**: Public API surface—exports `Guard`, `GuardDecision`, custom exceptions
 - **`core/guard.py`**: Main entry point—`Guard` class with `validate()` and `validate_async()` methods
 - **`core/pipeline.py`**: Three-tier cascade with early-exit logic and optional parallelization
 - **`core/decision.py`**: Weighted score aggregation and decision mapping (allow/block/regenerate/abstain)
@@ -158,7 +158,7 @@ hallucination-guard/
 #### Examples & Eval
 - **`examples/gemini_rag_example.py`**: Primary hackathon demo—shows blocked vs allowed responses
 - **`examples/gemini_armoriq_example.py`**: Two-layer demo—text validation + action enforcement
-- **`cli/eval.py`**: CLI tool—`hguard eval` (benchmark datasets) and `hguard benchmark` (latency)
+- **`cli/eval.py`**: CLI tool—`verdict eval` (benchmark datasets) and `verdict benchmark` (latency)
 - **`eval/run_halubench.py`**: Standalone HaluBench evaluation with precision/recall/F1 metrics
 
 ---
@@ -183,14 +183,14 @@ pip install -e .
 
 ```bash
 # Format code
-black hallucination_guard/ tests/ examples/
+black verdict/ tests/ examples/
 
 # Lint
-ruff check hallucination_guard/ tests/ examples/
-mypy hallucination_guard/
+ruff check verdict/ tests/ examples/
+mypy verdict/
 
 # Type check
-mypy hallucination_guard/ --strict
+mypy verdict/ --strict
 ```
 
 ### Testing
@@ -200,7 +200,7 @@ mypy hallucination_guard/ --strict
 pytest
 
 # Run with coverage
-pytest --cov=hallucination_guard --cov-report=html
+pytest --cov=verdict --cov-report=html
 
 # Run specific test file
 pytest tests/test_pipeline.py
@@ -216,10 +216,10 @@ HG_DISABLE_HHEM=true pytest tests/test_heuristics.py tests/test_embedding.py
 
 ```bash
 # Run CLI evaluation on HaluBench
-hguard eval --dataset halueval --policy rag_strict --output eval/results/halueval_run1.json
+verdict eval --dataset halueval --policy rag_strict --output eval/results/halueval_run1.json
 
 # Benchmark latency (p50/p95/p99)
-hguard benchmark --requests 1000 --concurrency 10 --policy default
+verdict benchmark --requests 1000 --concurrency 10 --policy default
 
 # Run standalone HaluBench evaluation
 python eval/run_halubench.py --policy rag_strict --output eval/results/halubench_$(date +%Y%m%d).json
@@ -263,7 +263,7 @@ du -sh ~/.cache/huggingface/
 python -m build
 
 # Install from wheel
-pip install dist/hallucination_guard-*.whl
+pip install dist/verdict-*.whl
 
 # Clean build artifacts
 rm -rf build/ dist/ *.egg-info __pycache__
@@ -277,7 +277,7 @@ find . -type d -name __pycache__ -exec rm -rf {} +
 ### Typical SDK Usage Flow
 
 ```python
-from hallucination_guard import Guard, HallucinationBlockedError
+from verdict import Guard, HallucinationBlockedError
 
 # Initialize guard with a policy
 guard = Guard(policy="rag_strict")  # or path to custom YAML
@@ -305,7 +305,7 @@ elif decision.decision == "regenerate":
 ### GuardedGemini Pattern (Primary Integration)
 
 ```python
-from hallucination_guard.integrations import GuardedGemini
+from verdict.integrations import GuardedGemini
 import google.generativeai as genai
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -333,7 +333,7 @@ except HallucinationBlockedError as e:
 
 ```python
 from langchain.chains import RetrievalQA
-from hallucination_guard.integrations import HallucinationGuardCallback
+from verdict.integrations import HallucinationGuardCallback
 
 chain = RetrievalQA.from_chain_type(
     llm=llm,
@@ -390,7 +390,7 @@ mitigation:
 ### Writing New Validators
 
 ```python
-from hallucination_guard.validators.base import BaseValidator, ValidationInput, ValidationResult
+from verdict.validators.base import BaseValidator, ValidationInput, ValidationResult
 
 class MyCustomValidator(BaseValidator):
     def __init__(self, config: dict):
@@ -438,8 +438,8 @@ decision = guard.validate(...)  # Automatically logged to Langfuse
 
 ```python
 import pytest
-from hallucination_guard.validators.heuristics import HeuristicsValidator
-from hallucination_guard.validators.base import ValidationInput
+from verdict.validators.heuristics import HeuristicsValidator
+from verdict.validators.base import ValidationInput
 
 def test_heuristics_detects_hallucination():
     validator = HeuristicsValidator({"threshold": 0.5})
@@ -677,13 +677,13 @@ Before committing any code, you MUST run these checks and fix all failures:
 
 ```bash
 # 1. Format
-black hallucination_guard/ tests/ examples/
+black verdict/ tests/ examples/
 
 # 2. Lint
-ruff check hallucination_guard/ tests/ examples/ --fix
+ruff check verdict/ tests/ examples/ --fix
 
 # 3. Type check
-mypy hallucination_guard/ --strict
+mypy verdict/ --strict
 
 # 4. Run tests
 pytest
@@ -762,7 +762,7 @@ List any breaking API changes, or "None"
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `GOOGLE_API_KEY` | — | Gemini API key for `GuardedGemini` (required for examples) |
-| `HG_TRACE_DIR` | `~/.hallucination_guard/traces/` | Directory for JSONL trace logs |
+| `HG_TRACE_DIR` | `~/.verdict/traces/` | Directory for JSONL trace logs |
 | `HG_MODEL_CACHE` | `~/.cache/huggingface/` | HuggingFace model download cache |
 | `HG_DEFAULT_POLICY` | `default` | Policy loaded when `Guard()` called without policy arg |
 | `HG_DISABLE_HHEM` | `false` | Set `true` to skip HHEM (fast mode, heuristics + embeddings only) |

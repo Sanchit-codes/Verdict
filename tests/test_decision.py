@@ -8,14 +8,14 @@ Tests cover:
 """
 
 import pytest
-from hallucination_guard.core.decision import (
+from verdict.core.decision import (
     GuardDecision,
     aggregate_scores,
     make_decision,
     generate_suggested_fix,
 )
-from hallucination_guard.validators.base import ValidationResult
-from hallucination_guard.policy.schema import (
+from verdict.validators.base import ValidationResult
+from verdict.policy.schema import (
     PolicyConfig,
     ValidatorConfig,
     MitigationConfig,

@@ -15,16 +15,16 @@ import logging
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from hallucination_guard.core.pipeline import (
+from verdict.core.pipeline import (
     ValidationPipeline,
     create_pipeline,
     VALIDATOR_REGISTRY,
 )
-from hallucination_guard.validators.base import (
+from verdict.validators.base import (
     ValidationInput,
     ValidationResult,
 )
-from hallucination_guard.policy.schema import (
+from verdict.policy.schema import (
     PolicyConfig,
     ValidatorConfig,
     MitigationConfig,
@@ -605,7 +605,7 @@ def test_create_pipeline_with_policy_name():
         ],
     )
     
-    with patch("hallucination_guard.core.pipeline.load_policy", return_value=test_policy):
+    with patch("verdict.core.pipeline.load_policy", return_value=test_policy):
         pipeline = create_pipeline("default")
         
         assert isinstance(pipeline, ValidationPipeline)
