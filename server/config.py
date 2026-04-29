@@ -24,7 +24,7 @@ class Config:
     DEFAULT_POLICY: str = os.getenv("HG_DEFAULT_POLICY", "default")
     GUARD_LOG_LEVEL: str = os.getenv("HG_LOG_LEVEL", "INFO")
     ENABLE_TRACE_EXPORT: bool = os.getenv("HG_ENABLE_TRACE_EXPORT", "false").lower() == "true"
-    TRACE_DIR: Path = Path(os.getenv("HG_TRACE_DIR", "~/.hallucination_guard/traces")).expanduser()
+    TRACE_DIR: Path = Path(os.getenv("HG_TRACE_DIR", "~/.verdict/traces")).expanduser()
 
     # Model loading config
     PRELOAD_MODELS: bool = os.getenv("HG_PRELOAD_MODELS", "true").lower() == "true"

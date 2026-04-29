@@ -389,7 +389,7 @@ curl -X POST http://localhost:5000/api/batch \
 | `HG_PRELOAD_MODELS` | `true` | Preload ML models at startup |
 | `HG_WARMUP_TIMEOUT` | `60` | Model preload timeout in seconds |
 | `HG_ENABLE_TRACE_EXPORT` | `false` | Export traces to Langfuse |
-| `HG_TRACE_DIR` | `~/.hallucination_guard/traces` | Trace output directory |
+| `HG_TRACE_DIR` | `~/.verdict/traces` | Trace output directory |
 | `HG_ENABLE_ARMORIQ` | `false` | Enable ArmorIQ intent enforcement |
 
 ### Example Configuration
@@ -606,8 +606,8 @@ CMD ["python", "server/run.py"]
 
 Run with:
 ```bash
-docker build -t hallucination-guard-api .
-docker run -p 5000:5000 -e FLASK_ENV=production hallucination-guard-api
+docker build -t verdict-api .
+docker run -p 5000:5000 -e FLASK_ENV=production verdict-api
 ```
 
 ### Gunicorn (Production WSGI)

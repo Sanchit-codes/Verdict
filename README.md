@@ -51,7 +51,7 @@ if (decision.decision === 'allow') {
 ### For Python Developers
 
 ```python
-from hallucination_guard import Guard
+from verdict import Guard
 
 # Initialize guard with a policy
 guard = Guard(policy="default")
@@ -104,7 +104,7 @@ Comprehensive guides for deploying and using HallucinationGuard across the full 
 
 - **[GEMINI_SETUP.md](./GEMINI_SETUP.md)** — Gemini integration guide (5 minutes)
   - Get a free Google API key (15 req/min free tier)
-  - Install with Gemini support: `pip install hallucination-guard[gemini]`
+  - Install with Gemini support: `pip install verdict[gemini]`
   - Generate text with Gemini 2.5 Flash, validate with HallucinationGuard 3-tier cascade
   - Complete code example showing faithful vs. hallucinated outputs
   - Troubleshooting (API quota, latency, model downloads)
@@ -339,7 +339,7 @@ pip install -e ".[gemini,langchain,observability,dev]"
 pytest
 
 # Run with coverage
-pytest --cov=hallucination_guard --cov-report=html
+pytest --cov=verdict --cov-report=html
 
 # Fast mode (skip model downloads)
 HG_DISABLE_HHEM=true pytest tests/test_heuristics.py
@@ -352,13 +352,13 @@ pytest tests/ -k "not slow"  # Use development policy in tests
 
 ```bash
 # Format
-black hallucination_guard/ tests/ examples/
+black verdict/ tests/ examples/
 
 # Lint
-ruff check hallucination_guard/ tests/ examples/
+ruff check verdict/ tests/ examples/
 
 # Type check
-mypy hallucination_guard/ --strict
+mypy verdict/ --strict
 ```
 
 ## Technology Stack
@@ -509,7 +509,7 @@ Key methods:
 Standalone Flask server with authentication and comprehensive validation endpoints:
 
 ```bash
-export GUARDLY_API_KEYS="key1,key2,key3"
+export VERDICT_API_KEYS="key1,key2,key3"
 python3 examples/flask_api_server.py
 ```
 
@@ -522,7 +522,7 @@ Access at: `http://localhost:5000`
 Complete TypeScript client example demonstrating all SDK methods:
 
 ```bash
-export GUARDLY_API_KEY="your-key"
+export VERDICT_API_KEY="your-key"
 npx tsx examples/node_sdk_client.ts
 ```
 
@@ -552,8 +552,8 @@ Prompt → LLM (Gemini) → Output
 ## Project Structure
 
 ```
-hallucination-guard/
-├── hallucination_guard/       # Core Python SDK
+verdict/
+├── verdict/       # Core Python SDK
 │   ├── core/                  # Main guard, pipeline, decision engine
 │   ├── validators/            # Tier 1-3 validators
 │   ├── policy/                # Policy configuration

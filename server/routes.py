@@ -9,8 +9,8 @@ from typing import Any
 
 from flask import Blueprint, jsonify, request
 
-from hallucination_guard import Guard
-from hallucination_guard.core.exceptions import IntentViolationError
+from verdict import Guard
+from verdict.core.exceptions import IntentViolationError
 
 from .config import Config
 from .gemini_generator import GeminiGenerator
@@ -178,7 +178,7 @@ def create_routes(app: Any, config: Config) -> Blueprint:
         try:
             # Get HallucinationGuard version from package metadata
             try:
-                from hallucination_guard import __version__
+                from verdict import __version__
 
                 guard_version = __version__
             except (ImportError, AttributeError):
