@@ -12,7 +12,7 @@
  * import { GuardlyClient } from 'guardly-node-sdk';
  *
  * const client = new GuardlyClient({
- *   apiKey: process.env.GUARDLY_API_KEY!,
+ *   apiKey: process.env.VERDICT_API_KEY!,
  *   baseUrl: 'http://localhost:5000'
  * });
  *
